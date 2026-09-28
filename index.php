@@ -216,6 +216,11 @@ function getSkillDictionary(): array {
         'Jira' => ['jira'],
         'Unit Testing' => ['unit testing', 'phpunit', 'jest', 'testing'],
         'Microservices' => ['microservices', 'micro-services'],
+        'Blockchain' => ['blockchain', 'distributed ledger'],
+        'Web3' => ['web3', 'web 3'],
+        'Solidity' => ['solidity'],
+        'Ethereum' => ['ethereum', 'evm'],
+        'Smart Contracts' => ['smart contract', 'smart contracts'],
     ];
 }
 
