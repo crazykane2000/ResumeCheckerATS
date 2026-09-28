@@ -1,0 +1,25 @@
+# Runtime candidate documents and other sensitive uploads
+/uploads/*
+!/uploads/.gitkeep
+
+# Composer-generated dependencies
+/vendor/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime output
+*.log
+/tmp/
+/cache/
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
