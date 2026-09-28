@@ -1,10 +1,12 @@
 <?php
-$sessionPath = __DIR__ . '/tmp/sessions';
-if (!is_dir($sessionPath)) {
-    mkdir($sessionPath, 0770, true);
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    $sessionPath = __DIR__ . '/tmp/sessions';
+    if (!is_dir($sessionPath)) {
+        mkdir($sessionPath, 0770, true);
+    }
+    session_save_path($sessionPath);
+    session_start();
 }
-session_save_path($sessionPath);
-session_start();
 
 // Ensure vendor autoloader is included if present
 $autoloadPath = __DIR__ . '/vendor/autoload.php';
