@@ -52,7 +52,7 @@ function countryCodeFromName(?string $code, ?string $name): string {
     return $map[mb_strtolower(trim((string)$name))]??'';
 }
 function loadCandidateRecords(): array {
-    try{$rows=db()->query('SELECT * FROM candidates ORDER BY created_at DESC')->fetchAll();if($rows)return array_map(function($r){return ['id'=>$r['id'],'name'=>$r['name'],'role'=>$r['role_title'],'email'=>$r['email'],'phone'=>$r['phone'],'country_code'=>countryCodeFromName($r['country_code'],$r['country_name']),'country_name'=>$r['country_name'],'score'=>(int)$r['score'],'stage'=>$r['stage'],'source'=>$r['source_name'],'skills'=>json_decode($r['skills_json']??'[]',true)?:[],'experience'=>json_decode($r['experience_json']??'{}',true)?:[],'analysis'=>json_decode($r['analysis_json']??'{}',true)?:[],'file'=>$r['stored_file'],'created_at'=>$r['created_at']];},$rows);}catch(Throwable $e){}
+    try{$rows=db()->query('SELECT * FROM candidates ORDER BY created_at DESC')->fetchAll();if($rows)return array_map(function($r){return ['id'=>$r['id'],'job_id'=>$r['job_id']??null,'name'=>$r['name'],'role'=>$r['role_title'],'email'=>$r['email'],'phone'=>$r['phone'],'country_code'=>countryCodeFromName($r['country_code'],$r['country_name']),'country_name'=>$r['country_name'],'score'=>(int)$r['score'],'stage'=>$r['stage'],'source'=>$r['source_name'],'skills'=>json_decode($r['skills_json']??'[]',true)?:[],'experience'=>json_decode($r['experience_json']??'{}',true)?:[],'analysis'=>json_decode($r['analysis_json']??'{}',true)?:[],'file'=>$r['stored_file'],'source_url'=>$r['source_url']??null,'created_at'=>$r['created_at']];},$rows);}catch(Throwable $e){}
     return workspaceData('candidates.json',[]);
 }
 function candidatePresentation(array $candidate): array {
