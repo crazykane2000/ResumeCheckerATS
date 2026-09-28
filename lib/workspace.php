@@ -46,8 +46,13 @@ function saveCandidateRecord(array $result): void {
     $sql='INSERT INTO candidates(id,name,role_title,email,phone,score,stage,source_name,skills_json,experience_json,analysis_json,stored_file,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),role_title=VALUES(role_title),email=VALUES(email),phone=VALUES(phone),score=VALUES(score),skills_json=VALUES(skills_json),experience_json=VALUES(experience_json),analysis_json=VALUES(analysis_json),stored_file=VALUES(stored_file)';
     db()->prepare($sql)->execute([$record['id'],$record['name'],$record['role'],$record['email'],$record['phone'],$record['score'],$record['stage'],$record['source'],json_encode($record['skills']),json_encode($record['experience']),json_encode($record['analysis']),$record['file'],$record['created_at']]);
 }
+function countryCodeFromName(?string $code, ?string $name): string {
+    if(trim((string)$code)!=='')return strtoupper(trim((string)$code));
+    $map=['india'=>'IN','kenya'=>'KE','ireland'=>'IE','germany'=>'DE','united states'=>'US','usa'=>'US','united kingdom'=>'GB','uk'=>'GB','canada'=>'CA','australia'=>'AU','united arab emirates'=>'AE','uae'=>'AE'];
+    return $map[mb_strtolower(trim((string)$name))]??'';
+}
 function loadCandidateRecords(): array {
-    try{$rows=db()->query('SELECT * FROM candidates ORDER BY created_at DESC')->fetchAll();if($rows)return array_map(function($r){return ['id'=>$r['id'],'name'=>$r['name'],'role'=>$r['role_title'],'email'=>$r['email'],'phone'=>$r['phone'],'score'=>(int)$r['score'],'stage'=>$r['stage'],'source'=>$r['source_name'],'skills'=>json_decode($r['skills_json']??'[]',true)?:[],'experience'=>json_decode($r['experience_json']??'{}',true)?:[],'analysis'=>json_decode($r['analysis_json']??'{}',true)?:[],'file'=>$r['stored_file'],'created_at'=>$r['created_at']];},$rows);}catch(Throwable $e){}
+    try{$rows=db()->query('SELECT * FROM candidates ORDER BY created_at DESC')->fetchAll();if($rows)return array_map(function($r){return ['id'=>$r['id'],'name'=>$r['name'],'role'=>$r['role_title'],'email'=>$r['email'],'phone'=>$r['phone'],'country_code'=>countryCodeFromName($r['country_code'],$r['country_name']),'country_name'=>$r['country_name'],'score'=>(int)$r['score'],'stage'=>$r['stage'],'source'=>$r['source_name'],'skills'=>json_decode($r['skills_json']??'[]',true)?:[],'experience'=>json_decode($r['experience_json']??'{}',true)?:[],'analysis'=>json_decode($r['analysis_json']??'{}',true)?:[],'file'=>$r['stored_file'],'created_at'=>$r['created_at']];},$rows);}catch(Throwable $e){}
     return workspaceData('candidates.json',[]);
 }
 function candidatePresentation(array $candidate): array {
@@ -62,4 +67,19 @@ function candidatePresentation(array $candidate): array {
     $role=preg_replace('/\s+(?:support|contact|email|phone)@?.*$/iu','',$role)??$role;
     $name=mb_substr(trim($name),0,60); $role=mb_substr(trim($role),0,60);
     return ['name'=>$name?:'Unknown candidate','role'=>$role?:'Candidate'];
+}
+
+function normaliseSkill(string $skill): string {
+    return mb_strtolower(trim(preg_replace('/\s+/u',' ',strip_tags($skill))));
+}
+function profileSkillMatch(array $candidate, array $requiredSkills): array {
+    $candidateSkills=[];
+    foreach(($candidate['skills']??[]) as $skill){$key=normaliseSkill((string)$skill);if($key!=='')$candidateSkills[$key]=trim((string)$skill);}
+    $required=[];
+    foreach($requiredSkills as $skill){$key=normaliseSkill((string)$skill);if($key!=='')$required[$key]=trim((string)$skill);}
+    $matched=[];$missing=[];
+    foreach($required as $key=>$label){if(isset($candidateSkills[$key]))$matched[]=$label;else $missing[]=$label;}
+    $benefits=[];foreach($candidateSkills as $key=>$label)if(!isset($required[$key]))$benefits[]=$label;
+    $score=count($required)?(int)round(count($matched)/count($required)*100):0;
+    return ['score'=>$score,'matched'=>$matched,'missing'=>$missing,'benefits'=>$benefits,'configured'=>(bool)$required];
 }
