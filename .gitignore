@@ -17,6 +17,7 @@
 /tmp/
 /cache/
 /data/*.json
+/data/.app-key
 /screenshots/
 
 # Editor and operating-system files
