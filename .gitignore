@@ -17,6 +17,7 @@
 /tmp/
 /cache/
 /data/*.json
+/screenshots/
 
 # Editor and operating-system files
 .idea/
