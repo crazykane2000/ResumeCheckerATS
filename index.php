@@ -19,7 +19,7 @@ require_once __DIR__ . '/lib/workspace.php';
 function cleanText(string $text): string {
     $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     $text = preg_replace('/\s+/u', ' ', $text);
-    return trim($text);
+    return trim((string)$text);
 }
 
 /**
@@ -323,6 +323,7 @@ function formatBytes(int $bytes, int $precision = 2): string {
     return round($bytes, $precision) . ' ' . $units[$pow];
 }
 
+if (defined('RESUMEIQ_FUNCTIONS_ONLY')) return;
 $result = null;
 $error = null;
 $batchResults = [];
