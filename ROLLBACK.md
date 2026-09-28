@@ -17,3 +17,15 @@ mysql -u root resumeiq < C:\Users\Asus\AppData\Local\Temp\resumeiq-2026-09-29-pr
 ```
 
 The tag is pushed to GitHub. The SQL backup is intentionally local because it contains private candidate data.
+
+## Temporary evidence lab checkpoint
+
+Stable checkpoint before the isolated evidence-based ATS prototype:
+
+```powershell
+git switch -c restore-pre-evidence-lab pre-temp-evidence-panel-2026-09-29
+```
+
+Private local database backup:
+
+`C:\Users\Asus\AppData\Local\Temp\resumeiq-2026-09-29-pre-temp-evidence-panel.sql`
