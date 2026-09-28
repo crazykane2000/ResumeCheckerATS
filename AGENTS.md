@@ -63,6 +63,11 @@ Add Composer packages only when the existing project and platform cannot reasona
 - Preserve support for exactly PDF, DOCX, and DOC unless the task changes that scope.
 - Preserve the original upload and extracted raw text when implementing persistence. Expose clear `processed`, `failed`, or `needs review`/OCR status and parser errors.
 - Keep recruiter control visible. AI may assist structured extraction, JD extraction, skill normalization, or uncertain experience identification, but may not independently hire, reject, or shortlist.
+- UI direction is a clean, futuristic-minimal ATS dashboard: use a white base, restrained mint/lavender accents, compact data visualization, clear hierarchy, and responsive layouts.
+- UI controls and surfaces may use restrained corner rounding up to `12px`; keep dense data surfaces closer to `6px` and avoid pill-heavy styling. Circular data visualizations may use SVG or `clip-path`.
+- All product pages must use the shared global shell in `views/partials/header.php` and `views/partials/footer.php`, with design tokens and common components from `assets/app.css`. Keep Scan, Pipeline, Candidates, and Sources navigation present on every page; do not create page-specific color or typography systems.
+- The candidate pipeline is a persistent drag-and-drop Kanban flow. Its canonical stages are Applied, Screening, Interview, Offer, and Rejected; moving a card must save the new stage server-side and survive refresh.
+- A successful resume scan must create or update its candidate pipeline record. Keep candidate source attribution and experience-analysis provenance with that record.
 - Never fabricate resume facts. Keep unknown or ambiguous data unknown and identify it for review.
 - Do not infer or score religion, caste, gender, marital status, ethnicity, political views, health status, photographs, or inferred personality.
 - Calculate experience from employment date ranges when possible, avoid overlapping-job double counts, and mark unreliable results uncertain. Do not invent dates or simply trust a claimed total when structured dates exist.

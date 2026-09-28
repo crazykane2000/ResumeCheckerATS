@@ -1,4 +1,9 @@
 <?php
+$sessionPath = __DIR__ . '/tmp/sessions';
+if (!is_dir($sessionPath)) {
+    mkdir($sessionPath, 0770, true);
+}
+session_save_path($sessionPath);
 session_start();
 
 // Ensure vendor autoloader is included if present
@@ -6,6 +11,7 @@ $autoloadPath = __DIR__ . '/vendor/autoload.php';
 if (file_exists($autoloadPath)) {
     require_once $autoloadPath;
 }
+require_once __DIR__ . '/lib/workspace.php';
 
 /**
  * Clean and normalize text
@@ -319,8 +325,16 @@ function formatBytes(int $bytes, int $precision = 2): string {
 
 $result = null;
 $error = null;
+$batchResults = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $incoming = $_FILES['resume'] ?? [];
+    $uploadSet = [];
+    if (is_array($incoming['name'] ?? null)) {
+        foreach ($incoming['name'] as $i => $name) $uploadSet[] = ['name'=>$name,'type'=>$incoming['type'][$i]??'','tmp_name'=>$incoming['tmp_name'][$i]??'','error'=>$incoming['error'][$i]??UPLOAD_ERR_NO_FILE,'size'=>$incoming['size'][$i]??0];
+    } else $uploadSet[] = $incoming;
+    foreach ($uploadSet as $uploadFile) {
+    $_FILES['resume'] = $uploadFile;
     try {
         if (empty($_FILES['resume']['tmp_name']) || $_FILES['resume']['error'] !== UPLOAD_ERR_OK) {
             throw new Exception('Please select a valid resume file to upload.');
@@ -372,6 +386,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $detectedSkills = extractDetectedSkills($extractedText);
         $email = extractEmail($extractedText);
         $phone = extractPhone($extractedText);
+        $experience = analyzeExperienceTimeline($extractedText, $detectedSkills);
 
         $result = [
             'original_filename' => $originalName,
@@ -392,11 +407,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'jd_keywords'       => $jdTokens,
             'matched_keywords'  => $matched,
             'missing_keywords'  => $missing,
+            'experience'        => $experience,
         ];
+        saveCandidateRecord($result);
+        $batchResults[] = ['file'=>$originalName,'ok'=>true,'score'=>$score];
     } catch (Throwable $e) {
         $error = $e->getMessage();
+        $batchResults[] = ['file'=>$uploadFile['name']??'Unknown file','ok'=>false,'error'=>$error];
+    }
     }
 }
+require __DIR__ . '/views/dashboard.php';
+exit;
 ?>
 <!doctype html>
 <html lang="en">
@@ -744,20 +766,126 @@ button.btn-secondary:hover {
   .grid-2 { grid-template-columns: 1fr; }
   .score-box { flex-direction: column; text-align: center; }
 }
+
+/* Minimal light dashboard */
+:root { --bg:#f7f9fc; --panel:#fff; --panel-border:#e7ebf2; --text-main:#101828; --text-muted:#667085; --primary:#5b5cf0; --primary-hover:#4748dc; --accent-green:#12b76a; --accent-amber:#f79009; --accent-red:#f04438; }
+body { background:radial-gradient(circle at 12% 0%,rgba(91,92,240,.07),transparent 28rem),radial-gradient(circle at 90% 12%,rgba(14,165,233,.06),transparent 24rem),var(--bg); color:var(--text-main); min-height:100vh; }
+.header-bar { position:sticky; top:0; z-index:20; padding:15px 0; margin-bottom:42px; background:rgba(255,255,255,.82); border-bottom:1px solid rgba(231,235,242,.9); backdrop-filter:blur(18px); }
+.logo { color:#111827; font-size:19px; letter-spacing:-.4px; }
+.logo-mark { width:34px; height:34px; display:grid; place-items:center; border-radius:10px; color:#fff!important; background:linear-gradient(145deg,#7071ff,#4b4cdd); box-shadow:0 8px 20px rgba(91,92,240,.24); }
+.logo span { color:var(--primary); }
+.tag { background:#f0f0ff; color:#4f46e5; border-color:#ddddff; }
+.wrap { max-width:1180px; }
+.hero { margin:0 0 24px; }
+.eyebrow,.section-kicker { color:var(--primary); font-size:11px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+.hero h1 { margin:8px 0 9px; font-size:clamp(30px,5vw,48px); line-height:1.08; letter-spacing:-.045em; }
+.hero p { max-width:650px; margin:0; color:var(--text-muted); font-size:15px; }
+.card { background:rgba(255,255,255,.94); border-color:var(--panel-border); border-radius:20px; padding:clamp(20px,3vw,30px); box-shadow:0 16px 48px rgba(16,24,40,.06); }
+h2 { color:var(--text-main); font-size:17px; letter-spacing:-.015em; }
+p.desc { color:var(--text-muted); }
+label { color:#344054; }
+.file-dropzone { min-height:180px; display:flex; flex-direction:column; justify-content:center; border:1.5px dashed #cfd4dc; background:#fafbff; }
+.file-dropzone:hover { border-color:var(--primary); background:#f7f7ff; transform:translateY(-1px); }
+.dropzone-icon { width:44px; height:44px; margin:0 auto 12px; display:grid; place-items:center; border-radius:13px; background:#ededff; color:var(--primary); font-size:20px; }
+.dropzone-text { color:#1d2939; }
+textarea { color:var(--text-main); background:#fafbff; border-color:#dfe3ea; }
+textarea:focus { background:#fff; border-color:var(--primary); box-shadow:0 0 0 4px rgba(91,92,240,.1); }
+button.btn-primary { min-height:46px; color:#fff; background:linear-gradient(135deg,#6567f4,#4f50da); border-radius:12px; box-shadow:0 10px 22px rgba(91,92,240,.2); }
+button.btn-primary:hover { background:linear-gradient(135deg,#5658e7,#4243cb); transform:translateY(-1px); }
+button.btn-secondary { color:#4f46e5; border-color:#d9d9ff; background:#f8f8ff; }
+button.btn-secondary:hover { background:#efefff; }
+.alert-error { background:#fff3f2; border-color:#fecdca; color:#b42318; }
+.alert-warning { background:#fffaeb; border-color:#fedf89; color:#93370d; }
+.score-box { min-height:210px; padding:24px; border-color:#ebeef4; background:linear-gradient(135deg,#fbfbff,#f8faff); }
+.score-circle { --score:0; --ring:var(--primary); position:relative; isolation:isolate; width:132px; height:132px; border:0; color:#101828; font-size:26px; background:conic-gradient(var(--ring) calc(var(--score) * 1%),#e9ecf2 0); box-shadow:0 12px 28px rgba(16,24,40,.1); }
+.score-circle::before { content:''; position:absolute; inset:12px; z-index:-1; border-radius:50%; background:#fff; }
+.score-circle::after { content:'MATCH'; display:block; font-size:9px; letter-spacing:.12em; color:var(--text-muted); }
+.score-circle.good { --ring:var(--accent-green); color:#087a4b; }
+.score-circle.mid { --ring:var(--accent-amber); color:#b54708; }
+.score-circle.bad { --ring:var(--accent-red); color:#b42318; }
+.score-meta h3 { color:var(--text-main); font-size:18px; }
+.score-meta p { color:var(--text-muted); }
+.chart-panel { padding:22px; border:1px solid #ebeef4; border-radius:14px; background:#fff; }
+.chart-title { margin:0 0 18px; font-size:13px; font-weight:700; color:#344054; }
+.bar-row { display:grid; grid-template-columns:62px 1fr 30px; align-items:center; gap:10px; margin:13px 0; font-size:12px; color:var(--text-muted); }
+.bar-track { height:9px; overflow:hidden; border-radius:99px; background:#edf0f5; }
+.bar-fill { height:100%; border-radius:inherit; background:linear-gradient(90deg,#7778f7,#5153df); }
+.bar-fill.missing { background:#dfe3ea; }
+.bar-value { color:#344054; font-weight:700; text-align:right; }
+.summary-side { display:grid; align-content:center; gap:18px; }
+.contact-box { padding:16px; border:1px solid #ebeef4; background:#fafbfc; border-radius:13px; color:#344054; }
+.badge.processed { background:#ecfdf3; color:#027a48; border-color:#abefc6; }
+.badge.requires_ocr { background:#fffaeb; color:#b54708; border-color:#fedf89; }
+.badge.failed { background:#fef3f2; color:#b42318; border-color:#fecdca; }
+.meta-item { background:#fafbfc; border-color:#eceff3; }
+.meta-item .lbl { color:var(--text-muted); }
+.meta-item .val { color:#1d2939; }
+.pill.skill { background:#f0f0ff; color:#4f46e5; border-color:#ddddff; }
+.pill.matched { background:#ecfdf3; color:#027a48; border-color:#abefc6; }
+.pill.missing { background:#fef3f2; color:#b42318; border-color:#fecdca; }
+.raw-text-box { background:#f8fafc; border-color:#e4e7ec; color:#344054; }
+@media (max-width:768px) { .header-bar{margin-bottom:28px}.tag{display:none}.hero h1{font-size:34px}.card{border-radius:16px}.score-box{flex-direction:row;text-align:left}.score-circle{width:110px;height:110px;font-size:23px}.btn-row{align-items:stretch;flex-direction:column}button.btn-primary,button.btn-secondary{width:100%} }
+@media (max-width:480px) { .wrap{padding:0 14px}.score-box{flex-direction:column;text-align:center}.meta-grid{grid-template-columns:1fr} }
+
+/* Product UI rule: controls and surfaces never exceed a 3px corner radius. */
+.card,
+.tag,
+.logo-mark,
+.dropzone-icon,
+.file-dropzone,
+textarea,
+button.btn-primary,
+button.btn-secondary,
+.alert-error,
+.alert-warning,
+.score-box,
+.chart-panel,
+.bar-track,
+.bar-fill,
+.contact-box,
+.badge,
+.meta-item,
+.pill,
+.raw-text-box { border-radius:3px; }
+.score-circle {
+  border-radius:0;
+  clip-path:circle(50% at 50% 50%);
+  --ring:#2bc9a5;
+}
+.score-circle::before {
+  border-radius:0;
+  clip-path:circle(50% at 50% 50%);
+}
+.score-circle.good { --ring:#2bc9a5; }
+.score-box { background:#f0f3fb; border-left:3px solid #7869e6; }
+.chart-panel { background:#fff; }
+.bar-fill { background:linear-gradient(90deg,#25c7a0,#46d6b4); }
+.bar-fill.missing { background:#dfe3ea; }
+.file-dropzone:hover { border-color:#2bc9a5; background:#f5fffc; }
+.eyebrow,.section-kicker { color:#16a987; }
+.dashboard-shell { display:grid; grid-template-columns:minmax(190px,.34fr) minmax(0,1fr); gap:10px; }
+.dashboard-shell > .score-box { min-height:100%; flex-direction:column; justify-content:center; text-align:center; }
+.dashboard-shell > .summary-side { padding:18px; background:#eef1fa; border:1px solid #e1e5ef; }
+@media (max-width:768px) { .dashboard-shell{grid-template-columns:1fr}.dashboard-shell>.score-box{min-height:220px} }
+.result-card{padding:0;overflow:hidden}.result-card>h2:first-child,.result-heading{padding:22px 24px;margin:0;border-bottom:1px solid #e8ebf0;background:#fff}.result-heading small{display:block;margin-top:4px;color:var(--text-muted);font-size:12px;font-weight:500}.result-card .dashboard-shell{padding:10px;background:#f4f6fa}.dashboard-shell{grid-template-columns:270px minmax(0,1fr)}.dashboard-shell>.score-box{padding:26px 20px;background:#fff;border:1px solid #e1e5eb;border-left:3px solid #20b995;align-items:center}.score-label{margin-top:-6px;color:#667085;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.score-rating{padding:4px 10px;background:#e9fbf5;border:1px solid #b7eadb;border-radius:3px;color:#087b61;font-size:11px;font-weight:800}.audit-list{width:100%;margin-top:20px;padding-top:16px;border-top:1px solid #edf0f3}.audit-title{margin-bottom:9px;color:#344054;font-size:12px;font-weight:800}.audit-item{display:flex;align-items:center;justify-content:space-between;padding:9px 10px;margin-top:5px;background:#f8fafb;border:1px solid #eef0f3;border-radius:3px;color:#475467;font-size:12px}.audit-state{min-width:22px;padding:2px 5px;border-radius:3px;background:#e9fbf5;color:#07805f;text-align:center;font-weight:800}.audit-state.issue{background:#fff1f0;color:#d92d20}.dashboard-shell>.summary-side{padding:28px;background:#eef1f9;border:1px solid #dfe4ef}.analysis-title{margin:0;color:#101828;font-size:clamp(21px,3vw,29px);line-height:1.2;letter-spacing:-.035em}.analysis-subtitle{margin:7px 0 22px;color:#667085;font-size:13px}.spectrum-card{padding:22px;background:#fff;border:1px solid #dfe4ea;border-radius:3px}.spectrum-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:34px}.spectrum-head strong{color:#344054;font-size:13px}.spectrum-head span{color:#667085;font-size:11px}.spectrum-wrap{position:relative;padding-top:17px}.spectrum-track{height:10px;background:linear-gradient(90deg,#ef5b5b 0%,#f2a93b 35%,#e7ca44 55%,#7bcf7c 75%,#20b995 100%);border-radius:3px}.spectrum-marker{position:absolute;top:-16px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;color:#101828;font-size:11px;font-weight:800}.spectrum-marker::after{content:'';width:2px;height:17px;margin-top:2px;background:#101828}.spectrum-marker b{padding:3px 6px;color:#fff;background:#101828;border-radius:3px}.spectrum-scale{display:flex;justify-content:space-between;margin-top:7px;color:#98a2b3;font-size:10px}.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.detail-panel{padding:16px;background:#fff;border:1px solid #dfe4ea;border-radius:3px}.detail-panel label{margin-bottom:10px;font-size:11px;letter-spacing:.06em;text-transform:uppercase}@media(max-width:768px){.dashboard-shell{grid-template-columns:1fr}.dashboard-shell>.summary-side{padding:20px}.detail-grid{grid-template-columns:1fr}.spectrum-card{padding:18px}}
 </style>
 </head>
 <body>
 
 <div class="header-bar">
   <div class="wrap">
-    <div class="logo">
-      <span>ATS</span> Scanner Proof of Concept
-    </div>
-    <div class="tag">Phase 1 Document Scanner</div>
+    <div class="logo"><span class="logo-mark">A</span> Resume<span>IQ</span></div>
+    <div class="tag">Smart candidate analysis</div>
   </div>
 </div>
 
 <div class="wrap">
+
+  <section class="hero">
+    <div class="eyebrow">AI-ready screening workspace</div>
+    <h1>Match talent with clarity.</h1>
+    <p>Upload a resume, add the role requirements, and get an explainable keyword match overview in seconds.</p>
+  </section>
 
   <?php if ($error): ?>
     <div class="alert-error">
@@ -798,7 +926,7 @@ button.btn-secondary:hover {
 
   <?php if ($result): ?>
     <!-- SCORE & OVERVIEW CARD -->
-    <div class="card">
+    <div class="card result-card">
       <h2>📊 Extraction & Match Summary</h2>
       
       <?php if ($result['requires_ocr']): ?>
@@ -813,37 +941,55 @@ button.btn-secondary:hover {
         </div>
       <?php endif; ?>
 
-      <div class="grid-2">
+      <div class="dashboard-shell">
         <div class="score-box">
           <?php 
             $sc = $result['match_score'];
             $scClass = $sc >= 70 ? 'good' : ($sc >= 45 ? 'mid' : 'bad');
           ?>
-          <div class="score-circle <?= $scClass ?>">
+          <div class="score-circle <?= $scClass ?>" style="--score: <?= $sc ?>">
             <?= $sc ?>%
           </div>
+          <div class="score-label">Resume score</div>
+          <div class="score-rating"><?= $sc >= 70 ? 'STRONG MATCH' : ($sc >= 45 ? 'NEEDS REVIEW' : 'LOW MATCH') ?></div>
           <div class="score-meta">
             <h3>Basic Keyword Match Score</h3>
             <p><?= count($result['matched_keywords']) ?> of <?= count($result['jd_keywords']) ?> JD keywords present in candidate resume text.</p>
           </div>
+          <div class="audit-list">
+            <div class="audit-title">Evaluation overview</div>
+            <div class="audit-item"><span>ATS parsability</span><span class="audit-state <?= $result['processing_status'] === 'processed' ? '' : 'issue' ?>"><?= $result['processing_status'] === 'processed' ? 'OK' : '!' ?></span></div>
+            <div class="audit-item"><span>Detected skills</span><span class="audit-state"><?= count($result['detected_skills']) ?></span></div>
+            <div class="audit-item"><span>Contact details</span><span class="audit-state <?= ($result['email'] || $result['phone']) ? '' : 'issue' ?>"><?= ($result['email'] || $result['phone']) ? 'OK' : '!' ?></span></div>
+            <div class="audit-item"><span>Missing keywords</span><span class="audit-state <?= count($result['missing_keywords']) ? 'issue' : '' ?>"><?= count($result['missing_keywords']) ?></span></div>
+          </div>
         </div>
 
-        <div>
-          <label>Processing Status</label>
+        <div class="summary-side">
           <div>
-            <span class="badge <?= $result['processing_status'] ?>">
-              <?= strtoupper($result['processing_status']) ?>
-            </span>
-            <?php if ($result['requires_ocr']): ?>
-              <span class="badge requires_ocr">REQUIRES OCR</span>
-            <?php endif; ?>
+            <h3 class="analysis-title">Your resume scored <?= $sc ?> out of 100</h3>
+            <p class="analysis-subtitle">Keyword coverage against the job description you provided.</p>
           </div>
-
-          <div style="margin-top:14px;">
-            <label>Detected Contact Info</label>
-            <div style="font-size:14px;">
-              <strong>Email:</strong> <?= htmlspecialchars($result['email'] ?? 'Not found') ?><br>
-              <strong>Phone:</strong> <?= htmlspecialchars($result['phone'] ?? 'Not found') ?>
+          <div class="spectrum-card">
+            <div class="spectrum-head"><strong>Job description match spectrum</strong><span><?= count($result['matched_keywords']) ?> matched / <?= count($result['jd_keywords']) ?> total</span></div>
+            <div class="spectrum-wrap">
+              <div class="spectrum-marker" style="left:<?= max(2, min(98, $sc)) ?>%"><b><?= $sc ?></b></div>
+              <div class="spectrum-track"></div>
+              <div class="spectrum-scale"><span>0</span><span>25</span><span>50</span><span>75</span><span>100</span></div>
+            </div>
+          </div>
+          <div class="detail-grid">
+            <div class="detail-panel">
+              <label>Processing status</label>
+              <span class="badge <?= $result['processing_status'] ?>"><?= strtoupper($result['processing_status']) ?></span>
+              <?php if ($result['requires_ocr']): ?><span class="badge requires_ocr">REQUIRES OCR</span><?php endif; ?>
+            </div>
+            <div class="detail-panel">
+              <label>Detected contact info</label>
+              <div style="font-size:12px;line-height:1.7;color:#475467">
+                <strong>Email:</strong> <?= htmlspecialchars($result['email'] ?? 'Not found') ?><br>
+                <strong>Phone:</strong> <?= htmlspecialchars($result['phone'] ?? 'Not found') ?>
+              </div>
             </div>
           </div>
         </div>

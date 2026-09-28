@@ -16,6 +16,7 @@
 *.log
 /tmp/
 /cache/
+/data/*.json
 
 # Editor and operating-system files
 .idea/
