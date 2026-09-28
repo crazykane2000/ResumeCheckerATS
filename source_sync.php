@@ -6,7 +6,7 @@ try {
     if(($config['status']??'')!=='configured')throw new RuntimeException('Configure the NonceBlox database in Integrations first.');
     $remote=new PDO('mysql:host='.$config['host'].';port='.($config['port']?:3306).';dbname='.$config['database'].';charset=utf8mb4',$config['username'],integrationSecret($config,'password'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_TIMEOUT=>5]);
     $jobs=$remote->query('SELECT id,title,`desc`,tags,`date`,location,form_fields FROM career ORDER BY id DESC LIMIT 100')->fetchAll();
-    $applicants=$remote->query('SELECT id,fname,lname,email,phone,remark,job_position,`date`,highest_qualification,ctc,city,state,exctc,file,equity,career_id,country FROM career_request ORDER BY id DESC LIMIT 250')->fetchAll();
+    $applicants=$remote->query('SELECT id,fname,lname,email,phone,remark,job_position,`date`,highest_qualification,ctc,city,state,exctc,file,equity,career_id,country FROM career_request ORDER BY id DESC LIMIT 2000')->fetchAll();
     if($_SERVER['REQUEST_METHOD']==='POST'&&verifyCsrf($_POST['csrf']??'')){
         if(($_POST['action']??'')!=='sync')throw new RuntimeException('Invalid sync action.');$local=db();$jobStmt=$local->prepare('INSERT INTO jobs(title,description) VALUES(?,?)');$existingJobs=$local->prepare('SELECT id FROM jobs WHERE title=? LIMIT 1');
         foreach($jobs as $job){$existingJobs->execute([$job['title']]);if(!$existingJobs->fetchColumn())$jobStmt->execute([$job['title'],$job['desc']]);}
