@@ -48,7 +48,7 @@ function saveCandidateRecord(array $result): void {
 }
 function countryCodeFromName(?string $code, ?string $name): string {
     if(trim((string)$code)!=='')return strtoupper(trim((string)$code));
-    $map=['india'=>'IN','kenya'=>'KE','ireland'=>'IE','germany'=>'DE','united states'=>'US','usa'=>'US','united kingdom'=>'GB','uk'=>'GB','canada'=>'CA','australia'=>'AU','united arab emirates'=>'AE','uae'=>'AE'];
+    $map=['india'=>'IN','kenya'=>'KE','ireland'=>'IE','germany'=>'DE','united states'=>'US','usa'=>'US','united kingdom'=>'GB','uk'=>'GB','canada'=>'CA','australia'=>'AU','united arab emirates'=>'AE','uae'=>'AE','philippines'=>'PH','honduras'=>'HN','spain'=>'ES','egypt'=>'EG','indonesia'=>'ID'];
     return $map[mb_strtolower(trim((string)$name))]??'';
 }
 function loadCandidateRecords(): array {
