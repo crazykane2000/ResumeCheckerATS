@@ -24,7 +24,7 @@ The legacy score remains unchanged. Dashboard comparison additionally calculates
 
 Each required skill is mapped as `experience_backed`, `skills_only`, `related_review`, or `not_found`. Related technologies receive limited credit and remain explicitly marked for review. Relevant experience is averaged across every required skill instead of using only the single highest skill duration. Overlapping employment periods remain handled by the existing structured experience analysis.
 
-Jobs without configured required skills do not receive an evidence score. Candidates are compared only with the job referenced by their application `job_id`.
+Jobs without configured required skills do not receive an evidence score. Candidates without structured skill or experience analysis are marked `needs_analysis` instead of receiving a misleading zero. Candidates are compared only with the job referenced by their application `job_id`.
 
 ## Reason
 
@@ -34,5 +34,6 @@ The comparison makes the difference between keyword coverage and evidence-suppor
 
 - `lib/application_match.php`: evidence v1 mapping and score calculation.
 - `dashboard.php`: job-scoped legacy/evidence comparison preview.
+- `dashboard2.php`: evidence score, mapping details, ranking, filtering, and explicit analysis state.
 
 No database schema, stored candidate score, pipeline stage, shortlist, or rejection behavior is changed.
