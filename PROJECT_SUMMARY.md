@@ -104,7 +104,7 @@ The configured NonceBlox MySQL integration supports:
 
 Current local data was backfilled with the same mapping rules. Applicants whose source job no longer exists and whose title has no safe match remain intentionally unmapped.
 
-### Wishlist, shortlist, and email preview
+### Wishlist, shortlist, and interview outreach
 
 The Wishlist workflow is job-specific and includes:
 
@@ -117,7 +117,19 @@ The Wishlist workflow is job-specific and includes:
 - Branded HTML email templates using the Settings logo, organization name, and domain.
 - Preview-only storage with deduplication; saving a preview does not send an email.
 
-SMTP configuration exists, but production email delivery remains intentionally disabled unless explicitly implemented and enabled.
+Controlled interview delivery is implemented through the approved NonceBlox Email API with SMTP fallback. The invitation page prevents duplicate submits, displays a blocking progress loader, keeps recent outreach in a third operational column, highlights partial/failed batches, and provides recipient-level delivery history. Failed scheduling emails can be explicitly resent using their immutable stored HTML snapshot; reset actions return candidates from Interview to Applied, release reserved slots, cancel active scheduling invitations, and preserve email/audit history.
+
+### One-time external interview scheduling
+
+- New invitation batches create a recruiter-defined availability window of at most seven calendar days, with Monday-to-Friday slots, configurable daily hours, duration, buffer, and timezone.
+- Every candidate receives a unique 256-bit booking token. Only its SHA-256 hash is used for lookup; the exact rendered email is retained as the delivery snapshot.
+- The email CTA targets `https://nonceblox.com/interview-schedule.php?token=...`.
+- `deploy/nonceblox/interview-schedule.php` is the standalone page intended for the NonceBlox server. It communicates server-to-server with `public_interview_api.php` and must not contain database credentials.
+- `RESUMEIQ_SCHEDULING_API_URL` on the NonceBlox host must point to the public HTTPS ResumeIQ scheduling API.
+- Slot reservation is transactional. After confirmation, the token is closed and cannot be used by the candidate to change the slot.
+- Confirmations are audit logged and shown in `interview_calendar.php`.
+- Confirmation email goes to the candidate and Settings-configured admin addresses. Defaults are `chinka.gupta@nonceblox.com` and `hr@nonceblox.com`.
+- Production still requires deploying the standalone page, exposing the API over HTTPS, configuring the environment value, and completing a controlled end-to-end email test.
 
 ### Candidate deletion
 
@@ -132,6 +144,8 @@ Deletion is irreversible and is not exposed to non-owner users.
 
 ## 4. Database model
 
+Interview workflow files include `interview_invite.php`, `lib/interview_invite_scheduler.php`, `interview_batch.php`, `interview_batch_action.php`, `interview_resend.php`, `interview_calendar.php`, `public_interview_api.php`, and the deployable `deploy/nonceblox/interview-schedule.php` page.
+
 The current schema contains:
 
 - `users`
@@ -145,6 +159,10 @@ The current schema contains:
 - `wishlist_items`
 - `email_batches`
 - `email_recipients`
+- `interview_invite_locks`
+- `interview_batches`
+- `interview_invitations`
+- `interview_slots`
 - `audit_events`
 
 `database/schema.sql` represents a fresh installation. Incremental changes are stored in `database/migrations/`, including the organization-domain migration.
@@ -218,7 +236,9 @@ Parser changes additionally require normal PDF, DOCX, legacy DOC, invalid/empty 
 - DOCX extraction may miss headers, footers, text boxes, and complex layouts.
 - Standard JD matching remains basic token/sub-string coverage.
 - Evidence Lab scoring is deterministic but still heuristic.
-- Email is preview-only; controlled delivery, duplicate-send protection, and delivery telemetry need a dedicated implementation.
+- Interview delivery and one-time scheduling are implemented, but production deployment, confirmation-email retry/queueing, and a real external end-to-end test remain outstanding.
+- Historical batches created before the scheduling migration do not have booking tokens or slot records.
+- Post-interview outcomes and date-based hiring-batch archival still need a dedicated recruiter workflow.
 - Granular user roles/permissions and staff-management workflows are incomplete.
 - Issue reporting and a full human-readable audit UI are not complete.
 - Candidate/job history should continue evolving toward explicit immutable application-event records.
