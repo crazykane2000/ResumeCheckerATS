@@ -1,6 +1,7 @@
 # Runtime candidate documents and other sensitive uploads
 /uploads/*
 !/uploads/.gitkeep
+!/uploads/.htaccess
 
 # Composer-generated dependencies
 /vendor/
@@ -9,6 +10,7 @@
 .env
 .env.*
 !.env.example
+/config/database.local.php
 *.pem
 *.key
 
