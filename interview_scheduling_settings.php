@@ -1,0 +1,7 @@
+<?php
+require_once __DIR__.'/lib/auth.php';requireAuth();require_once __DIR__.'/lib/integrations.php';
+if($_SERVER['REQUEST_METHOD']!=='POST'||!verifyCsrf($_POST['csrf']??'')){http_response_code(403);exit('Invalid request.');}
+$pdo=db();$user=currentUser();$ownerId=(int)$pdo->query('SELECT MIN(id) FROM users')->fetchColumn();if((int)$user['id']!==$ownerId){http_response_code(403);exit('Owner access required.');}
+$emails=array_values(array_unique(array_filter(array_map('trim',explode(',',(string)($_POST['admin_emails']??''))))));if(!$emails||array_filter($emails,fn($email)=>!filter_var($email,FILTER_VALIDATE_EMAIL)))exit('Enter valid comma-separated admin emails.');
+$bookingUrl=trim((string)($_POST['external_booking_url']??''));if(!filter_var($bookingUrl,FILTER_VALIDATE_URL)||strtolower((string)parse_url($bookingUrl,PHP_URL_SCHEME))!=='https'||strtolower((string)parse_url($bookingUrl,PHP_URL_HOST))!=='nonceblox.com')exit('Use an HTTPS nonceblox.com booking page URL.');
+saveIntegration('interview_scheduling','configured',['admin_emails'=>$emails,'external_booking_url'=>$bookingUrl]);$pdo->prepare("INSERT INTO audit_events(user_id,action,entity_type,entity_id,metadata_json) VALUES(?,'settings.interview_scheduling_updated','workspace','1',?)")->execute([$user['id'],json_encode(['admin_email_count'=>count($emails),'external_booking_host'=>'nonceblox.com','outcome'=>'success'])]);header('Location: settings.php?interview_scheduling=saved');
