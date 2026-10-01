@@ -36,8 +36,8 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
         $valid=[];
         if($candidateIds){
             $marks=implode(',',array_fill(0,count($candidateIds),'?'));
-            $candidateCheck=$pdo->prepare("SELECT id FROM candidates WHERE job_id=? AND id IN ($marks)");
-            $candidateCheck->execute(array_merge([$jobId],$candidateIds));
+            $candidateCheck=$pdo->prepare("SELECT c.id FROM candidates c WHERE c.job_id=? AND c.id IN ($marks) AND NOT EXISTS(SELECT 1 FROM interview_invite_locks il JOIN wishlist_profiles wp ON wp.id=il.profile_id WHERE il.candidate_id=c.id AND il.active=1 AND wp.job_id=c.job_id AND wp.user_id=?)");
+            $candidateCheck->execute(array_merge([$jobId],$candidateIds,[$user['id']]));
             $valid=array_column($candidateCheck->fetchAll(),'id');
         }
 
@@ -48,6 +48,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
         $pdo->prepare("INSERT INTO audit_events(user_id,action,entity_type,entity_id,metadata_json) VALUES(?,'wishlist.bulk_update','wishlist_profile',?,?)")->execute([$user['id'],(string)$profileId,json_encode(['job_id'=>$jobId,'wishlist_count'=>count($valid)])]);
         $pdo->commit();
         $message=count($valid).' favourites saved.';
+        if(($_POST['action']??'save')==='invite'){header('Location: interview_invite.php?job_id='.$jobId);exit;}
         $_GET['job']=$jobId;
     }catch(Throwable $e){
         if($pdo->inTransaction())$pdo->rollBack();
@@ -76,6 +77,7 @@ foreach($candidateStmt->fetchAll() as $row){
 }
 usort($candidates,fn($a,$b)=>(int)$b['analyzed']<=>(int)$a['analyzed']?:(($b['job_score']??-1)<=> ($a['job_score']??-1)?:strcmp($a['name'],$b['name'])));
 if($activeJob&&!empty($activeJob['profile_id'])){$favStmt=$pdo->prepare('SELECT candidate_id,disposition FROM wishlist_items WHERE profile_id=?');$favStmt->execute([$activeJob['profile_id']]);foreach($favStmt->fetchAll() as $row)$favourites[$row['candidate_id']]=$row['disposition'];}
+$inviteLocks=[];if($activeJob&&!empty($activeJob['profile_id'])){$lockStmt=$pdo->prepare('SELECT candidate_id FROM interview_invite_locks WHERE profile_id=? AND active=1');$lockStmt->execute([$activeJob['profile_id']]);$inviteLocks=array_fill_keys($lockStmt->fetchAll(PDO::FETCH_COLUMN),true);}
 $filterSkills=[];$filterSources=[];
 foreach($candidates as $candidate){foreach($candidate['skills'] as $skill)if(trim($skill)!=='')$filterSkills[mb_strtolower(trim($skill))]=trim($skill);if(trim((string)$candidate['source'])!=='')$filterSources[$candidate['source']]=$candidate['source'];}
 natcasesort($filterSkills);natcasesort($filterSources);
@@ -108,7 +110,7 @@ function filterCandidates(){let shown=0;filterRows.forEach(row=>{const scoreOk=f
 [filterSearch,filterSkill,filterExperience,filterSource,filterScore,filterSort,filterStage].forEach(control=>control.addEventListener('input',filterCandidates));filterCandidates();
 const boxes=[...document.querySelectorAll('.select-box')],selectedCountElement=document.getElementById('selectedCount'),updateSelected=()=>{if(selectedCountElement)selectedCountElement.textContent=boxes.filter(b=>b.checked).length};boxes.forEach(b=>b.addEventListener('change',updateSelected));updateSelected();drawerFavourite.onclick=()=>{let b=document.querySelector('input[name="candidate_ids[]"][value="'+CSS.escape(drawer.dataset.id)+'"]');if(b&&!b.disabled){b.checked=!b.checked;updateSelected()}};
 </script>
-<script>const saveBar=document.querySelector('.save-bar');if(saveBar){const invite=document.createElement('a');invite.className='btn';invite.href='interview_invite.php?job_id=<?=$activeJobId?>';invite.innerHTML='<i class="fa-solid fa-calendar-check"></i> Invite for interview';saveBar.appendChild(invite)}</script>
+<script>const saveBar=document.querySelector('.save-bar'),inviteLocks=<?=json_encode(array_keys($inviteLocks))?>;if(saveBar){const invite=document.createElement('button');invite.type='submit';invite.name='action';invite.value='invite';invite.className='btn';invite.innerHTML='<i class="fa-solid fa-calendar-check"></i> Invite for interview';saveBar.appendChild(invite)}inviteLocks.forEach(id=>{const box=document.querySelector('.select-box[value="'+CSS.escape(id)+'"]');if(box){box.checked=false;box.disabled=true;box.closest('tr')?.classList.add('invite-locked');box.closest('td')?.insertAdjacentHTML('beforeend','<small style="display:block;color:#087a52;font-size:8px;font-weight:700">Invited</small>')}});</script>
 <style>
 .drawer-tabs{display:grid;grid-template-columns:repeat(4,1fr);padding:8px 18px;gap:6px;background:#fbfaff}.drawer-tabs button{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 5px;border:1px solid transparent;border-radius:7px;font-weight:600}.drawer-tabs button.active{background:#f0ebff;border-color:#d9ceff}.overview-section{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}.overview-section h3,.career-section h3{margin:0 0 10px;font-size:12px}.gap-highlight{display:flex;gap:10px;align-items:flex-start;padding:12px;border:1px solid #f2cc82;border-radius:8px;background:#fff8e8;color:#81590d}.gap-highlight.clear{border-color:#bfe9d8;background:#edfaf5;color:#087a55}.gap-highlight i{margin-top:2px}.gap-list{display:grid;gap:7px}.composition-list{display:grid;gap:9px}.composition-row{display:grid;grid-template-columns:125px minmax(0,1fr) 45px;gap:8px;align-items:center;font-size:10px}.composition-track,.skill-track{height:8px;border-radius:5px;background:#eceaf2;overflow:hidden}.composition-track i{display:block;height:100%;background:linear-gradient(90deg,#6f45ff,#a58fff)}.skill-graph{display:grid;gap:9px}.skill-graph-row{display:grid;grid-template-columns:105px minmax(0,1fr) 42px;gap:8px;align-items:center;font-size:10px}.skill-track i{display:block;height:100%;background:linear-gradient(90deg,#6f45ff,#24bd87)}.career-timeline{position:relative;margin-left:6px;padding-left:20px;border-left:2px solid #d9d0ff}.career-event{position:relative;padding:0 0 18px}.career-event:before{content:"";position:absolute;left:-26px;top:2px;width:10px;height:10px;border-radius:50%;background:#6f45ff;box-shadow:0 0 0 4px #eee9ff}.career-event strong{display:block;margin-bottom:4px}.career-event p{margin:0;color:var(--muted);font-size:10px;line-height:1.5}.resume-text-state{padding:12px;border:1px dashed var(--line);border-radius:8px;color:var(--muted);font-size:10px}.resume-raw{max-height:360px;overflow:auto;margin:10px 0 0;padding:12px;border:1px solid var(--line);border-radius:8px;background:#f8f8fc;white-space:pre-wrap;word-break:break-word;font:10px/1.6 Consolas,monospace}.editable-skill{display:block}.filter-field.skill-edit select{display:none}.candidate-table .experience-cell{white-space:nowrap;color:var(--muted)}@media(max-width:650px){.drawer-tabs{grid-template-columns:1fr 1fr}.composition-row,.skill-graph-row{grid-template-columns:90px minmax(0,1fr) 38px}}
 </style>
