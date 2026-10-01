@@ -1,11 +1,2 @@
 <?php
-function interviewConfirmationHtml(array $invitation,array $slot): string
-{
-    $safe=fn($value)=>htmlspecialchars((string)$value,ENT_QUOTES|ENT_HTML5,'UTF-8');$when=date('l, d F Y \a\t g:i A',strtotime($slot['starts_at']));
-    return '<!doctype html><html><body style="margin:0;background:#f5f5f8;font-family:Arial,sans-serif;color:#191820"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 14px"><tr><td align="center"><table role="presentation" width="640" style="width:100%;max-width:640px;background:#fff;border:1px solid #e8e6ee;border-radius:12px"><tr><td style="padding:28px;border-bottom:1px solid #eceaf1"><strong style="font-size:22px;color:#6843e9">NonceBlox</strong></td></tr><tr><td style="padding:34px 28px"><div style="font-size:12px;color:#6843e9;font-weight:bold;text-transform:uppercase">Interview confirmed</div><h1 style="font-size:28px;margin:12px 0">'.$safe($invitation['job_title']).'</h1><p style="line-height:1.7;color:#625e6b">'.$safe($invitation['candidate_name']).' confirmed the interview schedule.</p><div style="padding:20px;background:#f7f5ff;border-radius:10px"><strong>'.$safe($when).'</strong><br><span style="color:#767080">'.$safe($invitation['timezone']).'</span></div><p style="margin-top:24px;color:#625e6b">This time is now locked. Contact the hiring team if a manual reschedule is required.</p></td></tr></table></td></tr></table></body></html>';
-}
-
-function sendInterviewConfirmation(array $invitation,array $slot): void
-{
-    $settings=integrationConfig('interview_scheduling');$admins=$settings['admin_emails']??['chinka.gupta@nonceblox.com','hr@nonceblox.com'];$recipients=array_values(array_unique(array_filter(array_merge([$invitation['recipient_email']],$admins),fn($email)=>filter_var($email,FILTER_VALIDATE_EMAIL))));$subject='Interview confirmed - '.$invitation['job_title'];$html=interviewConfirmationHtml($invitation,$slot);$api=integrationConfig('email_api');if(($api['status']??'')!=='configured')$api=['status'=>'configured','url'=>'https://hrms-api.nonceblox.com/api/emails/send-multi-recipient'];if(!empty($api['url']))emailApiSendHtml($api,$recipients,$subject,$html);else{$smtp=integrationConfig('smtp');if(($smtp['status']??'')!=='configured')throw new RuntimeException('Confirmation email delivery is not configured.');foreach($recipients as $email)smtpSendHtml($smtp,$email,$subject,$html);}
-}
+require_once __DIR__.'/interview_confirmation_v2.php';
