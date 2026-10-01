@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__.'/lib/auth.php';requireAuth();
-$jobs=db()->query("SELECT id,title FROM jobs WHERE status IN ('open','draft') ORDER BY FIELD(status,'open','draft'),title")->fetchAll();
+$jobRows=db()->query("SELECT j.id,j.title,COUNT(c.id) applicants FROM jobs j LEFT JOIN candidates c ON c.job_id=j.id WHERE j.status IN ('open','draft') GROUP BY j.id,j.title,j.status ORDER BY applicants DESC,FIELD(j.status,'open','draft'),j.id")->fetchAll();
+$jobs=[];$seenRoles=[];
+foreach($jobRows as $job){$roleKey=preg_replace('/[^\pL\pN]+/u','',mb_strtolower(trim((string)$job['title'])));if($roleKey===''||isset($seenRoles[$roleKey]))continue;$seenRoles[$roleKey]=true;$jobs[]=$job;}
 ?>
 <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Hire Talent · ResumeIQ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
