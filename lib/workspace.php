@@ -52,8 +52,24 @@ function countryCodeFromName(?string $code, ?string $name): string {
     return $map[mb_strtolower(trim((string)$name))]??'';
 }
 function loadCandidateRecords(): array {
-    try{$rows=db()->query('SELECT * FROM candidates ORDER BY created_at DESC')->fetchAll();if($rows)return array_map(function($r){return ['id'=>$r['id'],'job_id'=>$r['job_id']??null,'name'=>$r['name'],'role'=>$r['role_title'],'email'=>$r['email'],'phone'=>$r['phone'],'country_code'=>countryCodeFromName($r['country_code'],$r['country_name']),'country_name'=>$r['country_name'],'score'=>(int)$r['score'],'stage'=>$r['stage'],'source'=>$r['source_name'],'skills'=>json_decode($r['skills_json']??'[]',true)?:[],'experience'=>json_decode($r['experience_json']??'{}',true)?:[],'analysis'=>json_decode($r['analysis_json']??'{}',true)?:[],'file'=>$r['stored_file'],'source_url'=>$r['source_url']??null,'created_at'=>$r['created_at']];},$rows);}catch(Throwable $e){}
-    return workspaceData('candidates.json',[]);
+    try{
+        $rows=db()->query('SELECT c.*,j.title job_title,j.description job_description,j.min_experience job_min_experience,j.max_experience job_max_experience,j.required_skills_json job_required_skills_json,j.preferred_skills_json job_preferred_skills_json FROM candidates c LEFT JOIN jobs j ON j.id=c.job_id ORDER BY c.created_at DESC')->fetchAll();
+        if($rows)return array_map(function($r){
+            $candidate=['id'=>$r['id'],'job_id'=>$r['job_id']??null,'name'=>$r['name'],'role'=>$r['role_title'],'email'=>$r['email'],'phone'=>$r['phone'],'country_code'=>countryCodeFromName($r['country_code'],$r['country_name']),'country_name'=>$r['country_name'],'legacy_score'=>(int)$r['score'],'stage'=>$r['stage'],'source'=>$r['source_name'],'skills'=>json_decode($r['skills_json']??'[]',true)?:[],'experience'=>json_decode($r['experience_json']??'{}',true)?:[],'analysis'=>json_decode($r['analysis_json']??'{}',true)?:[],'file'=>$r['stored_file'],'source_url'=>$r['source_url']??null,'created_at'=>$r['created_at']];
+            $job=$r['job_id']?['id'=>(int)$r['job_id'],'title'=>$r['job_title'],'description'=>$r['job_description'],'min_experience'=>$r['job_min_experience'],'max_experience'=>$r['job_max_experience'],'required_skills_json'=>$r['job_required_skills_json'],'preferred_skills_json'=>$r['job_preferred_skills_json']]:null;
+            $candidate['job']=$job;$candidate['job_title']=trim((string)($job['title']??$candidate['role']));$candidate['job_match']=$job?applicationEvidenceMatch($candidate,$job):['configured'=>false,'analyzed'=>false,'score'=>null,'mapping'=>[],'preferred_matched'=>[]];$candidate['score']=$candidate['job_match']['score'];
+            return $candidate;
+        },$rows);
+    }catch(Throwable $e){}
+    return array_map(function(array $candidate): array {
+        $candidate['job_id']=$candidate['job_id']??null;
+        $candidate['legacy_score']=(int)($candidate['score']??0);
+        $candidate['job']=$candidate['job']??null;
+        $candidate['job_title']=trim((string)($candidate['job_title']??$candidate['role']??''));
+        $candidate['job_match']=$candidate['job']?applicationEvidenceMatch($candidate,$candidate['job']):['configured'=>false,'analyzed'=>false,'score'=>null,'mapping'=>[],'preferred_matched'=>[]];
+        $candidate['score']=$candidate['job_match']['score'];
+        return $candidate;
+    },workspaceData('candidates.json',[]));
 }
 function candidatePresentation(array $candidate): array {
     $raw=trim((string)($candidate['name']??'Unknown candidate'));
@@ -72,14 +88,14 @@ function candidatePresentation(array $candidate): array {
 function normaliseSkill(string $skill): string {
     return mb_strtolower(trim(preg_replace('/\s+/u',' ',strip_tags($skill))));
 }
+require_once __DIR__.'/application_match.php';
 function profileSkillMatch(array $candidate, array $requiredSkills): array {
-    $candidateSkills=[];
-    foreach(($candidate['skills']??[]) as $skill){$key=normaliseSkill((string)$skill);if($key!=='')$candidateSkills[$key]=trim((string)$skill);}
-    $required=[];
-    foreach($requiredSkills as $skill){$key=normaliseSkill((string)$skill);if($key!=='')$required[$key]=trim((string)$skill);}
-    $matched=[];$missing=[];
-    foreach($required as $key=>$label){if(isset($candidateSkills[$key]))$matched[]=$label;else $missing[]=$label;}
-    $benefits=[];foreach($candidateSkills as $key=>$label)if(!isset($required[$key]))$benefits[]=$label;
-    $score=count($required)?(int)round(count($matched)/count($required)*100):0;
-    return ['score'=>$score,'matched'=>$matched,'missing'=>$missing,'benefits'=>$benefits,'configured'=>(bool)$required];
+    $job=$candidate['job']??['title'=>$candidate['job_title']??$candidate['role']??'','min_experience'=>0,'preferred_skills_json'=>'[]'];
+    $job['required_skills_json']=json_encode(array_values($requiredSkills));
+    $match=applicationEvidenceMatch($candidate,$job);
+    $match['matched']=array_column(array_filter($match['mapping'],fn($item)=>$item['status']==='experience_backed'),'requirement');
+    $match['review']=array_column(array_filter($match['mapping'],fn($item)=>in_array($item['status'],['skills_only','related_review'],true)),'requirement');
+    $match['missing']=array_column(array_filter($match['mapping'],fn($item)=>$item['status']==='not_found'),'requirement');
+    $match['benefits']=$match['preferred_matched'];
+    return $match;
 }

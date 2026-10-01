@@ -1,7 +1,13 @@
 <?php
+define('RESUMEIQ_FUNCTIONS_ONLY', true);
+
 $jd = "Senior PHP Developer with 3+ years experience in Laravel Framework, MySQL, REST API, JavaScript, Git, AWS";
 $file = __DIR__ . '/test_samples/sample_resume.docx';
 $ext = 'docx';
+if (!class_exists('ZipArchive')) {
+    $file = __DIR__ . '/test_samples/sample_resume.pdf';
+    $ext = 'pdf';
+}
 
 require_once __DIR__ . '/index.php';
 

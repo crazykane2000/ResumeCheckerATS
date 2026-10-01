@@ -261,8 +261,8 @@ function extractEmail(string $text): ?string {
  */
 function extractPhone(string $text): ?string {
     $patterns = [
-        '/(?:\+?91[\s\.-]?)?[6-9]\d{9}\b/',
-        '/(?:\+?\d{1,3}[\s\.-]?)?\(?\d{3}\)?[\s\.-]?\d{3}[\s\.-]?\d{4}\b/',
+        '/(?<!\d)(?:\+?91[\s\.-]?)?[6-9]\d{9}(?!\d)/',
+        '/(?<!\d)(?:\+?\d{1,3}[\s\.-]?)?\(?\d{3}\)?[\s\.-]?\d{3}[\s\.-]?\d{4}(?!\d)/',
     ];
     foreach ($patterns as $pattern) {
         if (preg_match($pattern, $text, $m)) {
