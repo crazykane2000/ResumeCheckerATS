@@ -2,7 +2,7 @@
 require_once __DIR__.'/secrets.php';
 
 function interviewCalendarSignature(int $invitationId): string{
-    return hash_hmac('sha256','interview-calendar:'.$invitationId,appSecretKey());
+    return hash_hmac('sha256','interview-calendar:'.$invitationId,appEncryptionKey());
 }
 function interviewCalendarDownloadUrl(int $invitationId): string{
     $base=rtrim((string)(getenv('RESUMEIQ_APP_URL')?:'https://resume.nonceblox.com'),'/');
