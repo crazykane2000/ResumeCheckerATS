@@ -109,19 +109,20 @@ foreach($items as $candidate){
     
     $exp=$candidate['experience']??[];
     $candName=candidatePresentation($candidate);
+    $cSource=normalizeCandidateSource($candidate['source']??'');
 
     foreach($candidate['skills']??[] as $skill)if(trim((string)$skill)!=='')$skills[mb_strtolower(trim((string)$skill))]=trim((string)$skill);
-    if(trim((string)($candidate['source']??''))!=='')$sources[(string)$candidate['source']]=(string)$candidate['source'];
+    if($cSource!=='')$sources[$cSource]=$cSource;
 
     $cCode=strtoupper(trim((string)($candidate['country_code']??'')));
     $cName=trim((string)($candidate['country_name']??''));
     if($cCode!=='')$countries[$cCode]=$cName?:$cCode;
     elseif($cName!=='')$countries[$cName]=$cName;
 
-    $cand=['id'=>$candidate['id'],'job_id'=>$cJobId,'job_title'=>trim((string)($candidate['job_title']??$candName['role']??'General')),'name'=>$candName['name'],'created_at'=>(string)($candidate['created_at']??''),'role'=>$candName['role'],'email'=>$candidate['email'],'phone'=>$candidate['phone'],'country_code'=>$cCode,'country_name'=>$cName,'source'=>$candidate['source']??'Unknown','stage'=>$candidate['stage']??'Applied','skills'=>$candidate['skills']??[],'experience'=>$exp,'age'=>candidateApplicationAge($candidate),'old'=>$old,'job_score'=>$match['score'],'analyzed'=>(bool)($match['analyzed']??false),'matched'=>array_column(array_filter($match['mapping']??[],fn($item)=>($item['status']??'')==='experience_backed'),'requirement'),'review'=>array_column(array_filter($match['mapping']??[],fn($item)=>in_array($item['status']??'',['skills_only','related_review'],true)),'requirement'),'missing'=>array_column(array_filter($match['mapping']??[],fn($item)=>($item['status']??'')==='not_found'),'requirement'),'benefits'=>array_slice($match['preferred_matched']??[],0,16),'breakdown'=>$match['breakdown']??[],'maximum'=>$match['maximum']??[]];
+    $cand=['id'=>$candidate['id'],'job_id'=>$cJobId,'job_title'=>trim((string)($candidate['job_title']??$candName['role']??'General')),'name'=>$candName['name'],'created_at'=>(string)($candidate['created_at']??''),'role'=>$candName['role'],'email'=>$candidate['email'],'phone'=>$candidate['phone'],'country_code'=>$cCode,'country_name'=>$cName,'source'=>$cSource?:'Direct upload','stage'=>$candidate['stage']??'Applied','skills'=>$candidate['skills']??[],'experience'=>$exp,'age'=>candidateApplicationAge($candidate),'old'=>$old,'job_score'=>$match['score'],'configured'=>(bool)($match['configured']??false),'analyzed'=>(bool)($match['analyzed']??false),'matched'=>array_column(array_filter($match['mapping']??[],fn($item)=>($item['status']??'')==='experience_backed'),'requirement'),'review'=>array_column(array_filter($match['mapping']??[],fn($item)=>in_array($item['status']??'',['skills_only','related_review'],true)),'requirement'),'missing'=>array_column(array_filter($match['mapping']??[],fn($item)=>($item['status']??'')==='not_found'),'requirement'),'benefits'=>array_slice($match['preferred_matched']??[],0,16),'breakdown'=>$match['breakdown']??[],'maximum'=>$match['maximum']??[]];
     $candidates[]=$cand;
 
-    $drawerData[$candidate['id']]=['name'=>$candName['name'],'role'=>$candName['role'],'job'=>$cand['job_title'],'email'=>$candidate['email']?:'Not available','phone'=>$candidate['phone']?:'Not available','country'=>$candidate['country_name']?:'Not available','source'=>$candidate['source']??'Unknown','stage'=>$candidate['stage']??'Applied','created_at'=>$candidate['created_at']??'','age'=>candidateApplicationAge($candidate),'old'=>$old,'score'=>$match['score'],'analyzed'=>(bool)($match['analyzed']??false),'breakdown'=>$match['breakdown']??[],'maximum'=>$match['maximum']??[],'matched'=>$cand['matched'],'review'=>$cand['review'],'missing'=>$cand['missing'],'benefits'=>$cand['benefits'],'months'=>(int)($exp['total_months']??0),'confidence'=>$exp['confidence']??'Not available','jobs'=>$exp['jobs']??[],'gaps'=>$exp['gaps']??[],'skill_months'=>$exp['skill_months']??[],'detail_url'=>'candidate_detail.php?id='.urlencode($candidate['id']),'resume_url'=>'resume_file.php?id='.urlencode($candidate['id']),'text_url'=>'candidate_drawer_api.php?id='.urlencode($candidate['id'])];
+    $drawerData[$candidate['id']]=['name'=>$candName['name'],'role'=>$candName['role'],'job'=>$cand['job_title'],'email'=>$candidate['email']?:'Not available','phone'=>$candidate['phone']?:'Not available','country'=>$candidate['country_name']?:'Not available','source'=>$cSource?:'Direct upload','stage'=>$candidate['stage']??'Applied','created_at'=>$candidate['created_at']??'','age'=>candidateApplicationAge($candidate),'old'=>$old,'score'=>$match['score'],'configured'=>(bool)($match['configured']??false),'analyzed'=>(bool)($match['analyzed']??false),'breakdown'=>$match['breakdown']??[],'maximum'=>$match['maximum']??[],'matched'=>$cand['matched'],'review'=>$cand['review'],'missing'=>$cand['missing'],'benefits'=>$cand['benefits'],'months'=>(int)($exp['total_months']??0),'confidence'=>$exp['confidence']??'Not available','jobs'=>$exp['jobs']??[],'gaps'=>$exp['gaps']??[],'skill_months'=>$exp['skill_months']??[],'detail_url'=>'candidate_detail.php?id='.urlencode($candidate['id']),'resume_url'=>'resume_file.php?id='.urlencode($candidate['id']),'text_url'=>'candidate_drawer_api.php?id='.urlencode($candidate['id'])];
 }
 
 usort($candidates,fn($a,$b)=>(int)$b['analyzed']<=>(int)$a['analyzed']?:(($b['job_score']??-1)<=> ($a['job_score']??-1)?:strcmp($a['name'],$b['name'])));
@@ -180,16 +181,17 @@ require __DIR__.'/views/partials/header.php';
             <small>Highest first</small>
         </div>
         <div class="job-list-items">
-            <button class="job-row <?=$activeJobId===0?'active':''?>" onclick="location.href='candidates.php'">
+            <button class="job-row <?=$activeJobId===0?'active':''?>" onclick="location.href='candidates.php'" style="background:linear-gradient(135deg,#fcfbff,#f4edff);border-color:#d9cdff">
                 <span>
-                    <strong>All Candidates</strong>
-                    <small>Entire workspace pool</small>
+                    <strong style="color:var(--primary)"><i class="fa-solid fa-layer-group"></i> All Workspace Candidates</strong>
+                    <small>Global workspace pool</small>
                 </span>
                 <span class="job-counts">
-                    <b><?=$totalApplicants?></b> candidates<br>
+                    <b style="color:var(--primary)"><?=$totalApplicants?></b> total<br>
                     <small><?=$totalWishlist?> wishlist</small>
                 </span>
             </button>
+            <div style="height:1px;background:var(--line);margin:4px 0 8px"></div>
             <?php foreach($jobs as $job):?>
                 <button class="job-row <?=$activeJobId===(int)$job['id']?'active':''?>" onclick="location.href='candidates.php?job=<?=(int)$job['id']?>'">
                     <span>
@@ -346,7 +348,7 @@ require __DIR__.'/views/partials/header.php';
                                     <td><strong><?=htmlspecialchars($candidate['stage'])?></strong></td>
                                     <td><span class="rank"><?=$i<5?'TOP '.($i+1):'RESERVE '.($i-4)?></span></td>
                                     <td class="experience-cell"><?=$months?round($months/12,1).' yrs':'Uncertain'?></td>
-                                    <td class="score-cell"><?php if(!empty($candidate['analysis']['requires_ocr'])||($candidate['analysis']['processing_status']??'')==='requires_ocr'):?><span class="score" style="color:#8c610d;background:#fff5e7;padding:3px 7px;border-radius:5px;font-size:10px;font-weight:700">Needs OCR</span><?php elseif($candidate['analyzed']):?><span class="score"><?=$candidate['job_score']?>%</span><?php elseif(!empty($candidate['legacy_score']) && $candidate['legacy_score'] > 0):?><span class="score"><?=$candidate['legacy_score']?>%</span><?php else:?><span class="score" style="color:#4338ca;background:#e0e7ff;padding:3px 8px;border-radius:5px;font-size:11px;font-weight:700">Indexed</span><?php endif?></td>
+                                    <td class="score-cell"><?php if(!empty($candidate['analysis']['requires_ocr'])||($candidate['analysis']['processing_status']??'')==='requires_ocr'):?><span class="score" style="color:#8c610d;background:#fff5e7;padding:3px 7px;border-radius:5px;font-size:10px;font-weight:700">Needs OCR</span><?php elseif(!$candidate['configured']):?><span class="score" style="color:#4338ca;background:#e0e7ff;padding:3px 8px;border-radius:5px;font-size:10px;font-weight:700" title="Candidate unassigned to a job post. Select/assign a job to calculate match score.">Unassigned</span><?php elseif($candidate['analyzed']):?><span class="score"><?=$candidate['job_score']?>%</span><?php elseif(!empty($candidate['legacy_score']) && $candidate['legacy_score'] > 0):?><span class="score"><?=$candidate['legacy_score']?>%</span><?php else:?><span class="score" style="color:#4338ca;background:#e0e7ff;padding:3px 8px;border-radius:5px;font-size:11px;font-weight:700">Indexed</span><?php endif?></td>
                                     <td style="white-space:nowrap">
                                         <?php if($candidate['old']):?>
                                             <span class="old-label"><i class="fa-solid fa-triangle-exclamation"></i> Old application</span>
@@ -445,8 +447,8 @@ function openCandidate(id){
     if(drawerName)drawerName.textContent=c.name;
     if(drawerRole)drawerRole.textContent=c.job+' · '+c.stage;
     if(drawerRank)drawerRank.innerHTML=c.old?'<span class="old-label"><i class="fa-solid fa-triangle-exclamation"></i> 🚩 Old Application · '+esc(c.age)+'</span>':'Applied '+esc(c.age);
-    if(gaugeValue)gaugeValue.textContent=c.analyzed?c.score+'/100':(c.score>0?c.score+'/100':'Indexed');
-    if(gaugeNeedle)gaugeNeedle.style.setProperty('--needle',(-180+(c.analyzed?c.score:(c.score||50))*1.8)+'deg');
+    if(gaugeValue)gaugeValue.textContent=(c.analyzed && c.configured)?c.score+'/100':((c.analyzed && !c.configured)?'Unassigned':(c.score>0?c.score+'/100':'Indexed'));
+    if(gaugeNeedle)gaugeNeedle.style.setProperty('--needle',(-180+((c.analyzed && c.configured)?c.score:0)*1.8)+'deg');
 
     const oldFlagBox=c.old?`<div class="gap-highlight old-flag" style="margin-bottom:14px"><i class="fa-solid fa-triangle-exclamation"></i><div><strong>OLD APPLICATION FLAG (6+ months old)</strong><br><small>Candidate registered ${esc(c.age)} (${esc(c.created_at)}). Details may be stale.</small></div></div>`:'';
 

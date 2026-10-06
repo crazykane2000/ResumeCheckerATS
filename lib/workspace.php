@@ -182,7 +182,7 @@ function saveCandidateRecord(array $result, ?int $jobId = null): void {
 
     $id = $existingId ?: ('CAN-'.substr(md5($result['stored_filename']), 0, 8));
 
-    $record=['id'=>$id,'job_id'=>$jobId,'name'=>$name,'role'=>$role,'email'=>$result['email'],'phone'=>$result['phone'],'country_code'=>$cCode,'country_name'=>$cName,'score'=>$result['match_score'],'skills'=>$result['detected_skills'],'stage'=>'Applied','source'=>'direct_upload','created_at'=>$result['created_at'],'file'=>$result['stored_filename'],'experience'=>$result['experience'],'analysis'=>['matched_keywords'=>$result['matched_keywords']??[],'missing_keywords'=>$result['missing_keywords']??[],'jd_keywords'=>$result['jd_keywords']??[]]];
+    $record=['id'=>$id,'job_id'=>$jobId,'name'=>$name,'role'=>$role,'email'=>$result['email'],'phone'=>$result['phone'],'country_code'=>$cCode,'country_name'=>$cName,'score'=>$result['match_score'],'skills'=>$result['detected_skills'],'stage'=>'Applied','source'=>'Direct upload','created_at'=>$result['created_at'],'file'=>$result['stored_filename'],'experience'=>$result['experience'],'analysis'=>['matched_keywords'=>$result['matched_keywords']??[],'missing_keywords'=>$result['missing_keywords']??[],'jd_keywords'=>$result['jd_keywords']??[]]];
     $items=array_values(array_filter($items,fn($item)=>($item['id']??'')!==$record['id'])); $items[]=$record; saveWorkspaceData('candidates.json',$items);
     
     $sql='INSERT INTO candidates(id,job_id,name,role_title,email,phone,country_code,country_name,score,stage,source_name,skills_json,experience_json,analysis_json,stored_file,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE job_id=VALUES(job_id),name=VALUES(name),role_title=VALUES(role_title),email=VALUES(email),phone=VALUES(phone),country_code=VALUES(country_code),country_name=VALUES(country_name),score=VALUES(score),skills_json=VALUES(skills_json),experience_json=VALUES(experience_json),analysis_json=VALUES(analysis_json),stored_file=VALUES(stored_file)';
@@ -193,13 +193,20 @@ function countryCodeFromName(?string $code, ?string $name): string {
     $map=['india'=>'IN','kenya'=>'KE','ireland'=>'IE','germany'=>'DE','united states'=>'US','usa'=>'US','united kingdom'=>'GB','uk'=>'GB','canada'=>'CA','australia'=>'AU','united arab emirates'=>'AE','uae'=>'AE','philippines'=>'PH','honduras'=>'HN','spain'=>'ES','egypt'=>'EG','indonesia'=>'ID'];
     return $map[mb_strtolower(trim((string)$name))]??'';
 }
+function normalizeCandidateSource(?string $source): string {
+    $s = trim((string)$source);
+    if ($s === '' || strcasecmp($s, 'direct_upload') === 0 || strcasecmp($s, 'Direct upload') === 0) {
+        return 'Direct upload';
+    }
+    return $s;
+}
 function loadCandidateRecords(): array {
     try{
         $rows=db()->query('SELECT c.*,j.title job_title,j.description job_description,j.min_experience job_min_experience,j.max_experience job_max_experience,j.required_skills_json job_required_skills_json,j.preferred_skills_json job_preferred_skills_json FROM candidates c LEFT JOIN jobs j ON j.id=c.job_id ORDER BY c.created_at DESC')->fetchAll();
         if($rows)return array_map(function($r){
-            $candidate=['id'=>$r['id'],'job_id'=>$r['job_id']??null,'name'=>$r['name'],'role'=>$r['role_title'],'email'=>$r['email'],'phone'=>$r['phone'],'country_code'=>countryCodeFromName($r['country_code'],$r['country_name']),'country_name'=>$r['country_name'],'legacy_score'=>(int)$r['score'],'stage'=>$r['stage'],'source'=>$r['source_name'],'skills'=>json_decode($r['skills_json']??'[]',true)?:[],'experience'=>json_decode($r['experience_json']??'{}',true)?:[],'analysis'=>json_decode($r['analysis_json']??'{}',true)?:[],'file'=>$r['stored_file'],'source_url'=>$r['source_url']??null,'created_at'=>$r['created_at']];
+            $candidate=['id'=>$r['id'],'job_id'=>$r['job_id']??null,'name'=>$r['name'],'role'=>$r['role_title'],'email'=>$r['email'],'phone'=>$r['phone'],'country_code'=>countryCodeFromName($r['country_code'],$r['country_name']),'country_name'=>$r['country_name'],'legacy_score'=>(int)$r['score'],'stage'=>$r['stage'],'source'=>normalizeCandidateSource($r['source_name']??''),'skills'=>json_decode($r['skills_json']??'[]',true)?:[],'experience'=>json_decode($r['experience_json']??'{}',true)?:[],'analysis'=>json_decode($r['analysis_json']??'{}',true)?:[],'file'=>$r['stored_file'],'source_url'=>$r['source_url']??null,'created_at'=>$r['created_at']];
             $job=$r['job_id']?['id'=>(int)$r['job_id'],'title'=>$r['job_title'],'description'=>$r['job_description'],'min_experience'=>$r['job_min_experience'],'max_experience'=>$r['job_max_experience'],'required_skills_json'=>$r['job_required_skills_json'],'preferred_skills_json'=>$r['job_preferred_skills_json']]:null;
-            $candidate['job']=$job;$candidate['job_title']=trim((string)($job['title']??$candidate['role']));$candidate['job_match']=$job?applicationEvidenceMatch($candidate,$job):['configured'=>false,'analyzed'=>false,'score'=>null,'mapping'=>[],'preferred_matched'=>[]];$candidate['score']=$candidate['job_match']['score'];
+            $candidate['job']=$job;$candidate['job_title']=trim((string)($job['title']??$candidate['role']));$candidate['job_match']=applicationEvidenceMatch($candidate,$job??[]);$candidate['score']=$candidate['job_match']['score'];
             return $candidate;
         },$rows);
     }catch(Throwable $e){}
@@ -207,8 +214,9 @@ function loadCandidateRecords(): array {
         $candidate['job_id']=$candidate['job_id']??null;
         $candidate['legacy_score']=(int)($candidate['score']??0);
         $candidate['job']=$candidate['job']??null;
+        $candidate['source']=normalizeCandidateSource($candidate['source']??'');
         $candidate['job_title']=trim((string)($candidate['job_title']??$candidate['role']??''));
-        $candidate['job_match']=$candidate['job']?applicationEvidenceMatch($candidate,$candidate['job']):['configured'=>false,'analyzed'=>false,'score'=>null,'mapping'=>[],'preferred_matched'=>[]];
+        $candidate['job_match']=applicationEvidenceMatch($candidate,$candidate['job']??[]);
         $candidate['score']=$candidate['job_match']['score'];
         return $candidate;
     },workspaceData('candidates.json',[]));
