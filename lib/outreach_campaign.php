@@ -164,9 +164,9 @@ function renderHiringOutreachEmailHtml(string $candidateName, array $jobTitles, 
     if ($logoPath !== '') {
         $baseUrl = (isset($_SERVER['HTTP_HOST']) && $_SERVER['HTTP_HOST']) ? (($_SERVER['REQUEST_SCHEME'] ?? 'http') . '://' . $_SERVER['HTTP_HOST'] . '/') : 'http://127.0.0.1:8000/';
         $fullLogoUrl = str_starts_with($logoPath, 'http') ? $logoPath : ($baseUrl . ltrim($logoPath, '/'));
-        $logoHtml = '<div style="background:#ffffff; border-radius:8px; padding:6px 14px; display:inline-block; box-shadow:0 2px 6px rgba(0,0,0,0.15);"><img src="' . htmlspecialchars($fullLogoUrl, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '" alt="' . $brandName . '" style="max-height:38px; max-width:220px; display:block; object-fit:contain;"></div>';
+        $logoHtml = '<img src="' . htmlspecialchars($fullLogoUrl, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '" alt="' . $brandName . '" style="max-height:45px; max-width:240px; display:block; object-fit:contain;">';
     } else {
-        $logoHtml = '<div style="background:#ffffff; border-radius:8px; padding:8px 16px; display:inline-block; font-weight:800; color:#1e1934; font-size:18px; letter-spacing:0.5px;">' . $brandName . '</div>';
+        $logoHtml = '<span style="font-size:20px; font-weight:800; color:#1e1934; letter-spacing:-0.3px;">' . $brandName . '</span>';
     }
 
     $safeName = trim(htmlspecialchars($candidateName, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
@@ -176,7 +176,7 @@ function renderHiringOutreachEmailHtml(string $candidateName, array $jobTitles, 
     $jobItemsHtml = '';
     foreach ($jobTitles as $title) {
         $safeTitle = htmlspecialchars($title, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $jobItemsHtml .= '<div style="background:#1e1a2b; border:1px solid #2e2842; border-left:4px solid #7c3aed; border-radius:6px; padding:12px 16px; margin-bottom:10px; color:#f3f0ff; font-weight:600; font-size:14px;">' . $safeTitle . '</div>';
+        $jobItemsHtml .= '<div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #7c3aed; border-radius:8px; padding:14px 18px; margin-bottom:10px; color:#1e293b; font-weight:600; font-size:14px;">' . $safeTitle . '</div>';
     }
 
     return '<!DOCTYPE html>
@@ -186,34 +186,34 @@ function renderHiringOutreachEmailHtml(string $candidateName, array $jobTitles, 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>We\'re hiring — ' . $brandName . '</title>
 </head>
-<body style="margin:0; padding:0; background-color:#0f0c1b; font-family:\'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; color:#e2e8f0; -webkit-font-smoothing:antialiased;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0f0c1b; padding:32px 16px;">
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:\'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; color:#334155; -webkit-font-smoothing:antialiased;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9; padding:32px 16px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%; max-width:600px; background-color:#161224; border:1px solid #28223b; border-radius:12px; overflow:hidden; box-shadow:0 8px 32px rgba(0,0,0,0.4);">
-          <!-- Header Bar with Organization Brand Logo -->
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%; max-width:600px; background-color:#ffffff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; box-shadow:0 10px 25px -5px rgba(0,0,0,0.05);">
+          <!-- Header Bar with Logo -->
           <tr>
-            <td style="padding:24px 32px; background:linear-gradient(135deg, #1f1934 0%, #161224 100%); border-bottom:1px solid #28223b;">
+            <td style="padding:28px 36px; background-color:#ffffff; border-bottom:1px solid #f1f5f9;">
               ' . $logoHtml . '
             </td>
           </tr>
           <!-- Body Content -->
           <tr>
-            <td style="padding:32px; font-size:15px; line-height:1.7; color:#cbd5e1;">
-              <p style="margin-top:0; margin-bottom:20px; font-size:16px; font-weight:600; color:#f1f5f9;">' . $greeting . '</p>
+            <td style="padding:36px; font-size:15px; line-height:1.75; color:#334155;">
+              <p style="margin-top:0; margin-bottom:20px; font-size:17px; font-weight:700; color:#0f172a;">' . $greeting . '</p>
               <p style="margin-bottom:24px;">NonceBlox is currently looking for talented professionals to join our team across several key engineering and growth roles.</p>
               
-              <div style="margin-bottom:24px;">
-                <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:#94a3b8; margin-bottom:12px;">Current Openings</div>
+              <div style="margin-bottom:28px;">
+                <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:#64748b; margin-bottom:12px;">Current Openings</div>
                 ' . $jobItemsHtml . '
               </div>
 
               <p style="margin-bottom:28px;">If any of these opportunities align with your background and career goals, explore our active job listings and submit your profile directly.</p>
 
               <!-- CTA Button -->
-              <table role="presentation" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
                 <tr>
-                  <td align="center" style="background:#7c3aed; border-radius:8px; padding:14px 28px;">
+                  <td align="center" style="background:#7c3aed; border-radius:8px; padding:14px 32px;">
                     <a href="' . $safeUrl . '" target="_blank" style="color:#ffffff; font-weight:700; font-size:15px; text-decoration:none; display:inline-block; letter-spacing:0.3px;">Explore Opportunities &rarr;</a>
                   </td>
                 </tr>
@@ -222,9 +222,9 @@ function renderHiringOutreachEmailHtml(string $candidateName, array $jobTitles, 
           </tr>
           <!-- Footer -->
           <tr>
-            <td style="padding:20px 32px; background-color:#110e1c; border-top:1px solid #241e33; color:#64748b; font-size:12px; text-align:center;">
+            <td style="padding:24px 36px; background-color:#f8fafc; border-top:1px solid #f1f5f9; color:#64748b; font-size:13px; text-align:center;">
               Regards,<br>
-              <strong style="color:#94a3b8;">NonceBlox Hiring Team</strong>
+              <strong style="color:#1e293b;">NonceBlox Hiring Team</strong>
             </td>
           </tr>
         </table>

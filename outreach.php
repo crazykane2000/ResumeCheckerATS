@@ -217,17 +217,18 @@ require_once __DIR__ . '/views/partials/header.php';
 }
 
 .dark-email-frame-wrap {
-  background: #0f0c1b;
+  background: #f1f5f9;
   border-radius: 8px;
   padding: 14px;
   overflow: hidden;
+  border: 1px solid #e2e8f0;
 }
 .email-preview-iframe {
   width: 100%;
   height: 480px;
   border: 0;
   border-radius: 6px;
-  background: #0f0c1b;
+  background: #f1f5f9;
 }
 
 /* Modal Styling */
@@ -431,8 +432,8 @@ require_once __DIR__ . '/views/partials/header.php';
     <div class="right-col">
       <div class="card">
         <div class="card-title" style="justify-content: space-between;">
-          <span><i class="fa-solid fa-envelope-open-text"></i> 5. Dark Email Template Preview</span>
-          <span style="font-size: 11px; font-weight: 500; color: #64748b;">Responsive Dark Layout</span>
+          <span><i class="fa-solid fa-envelope-open-text"></i> 5. Email Template Preview (Light Theme)</span>
+          <span style="font-size: 11px; font-weight: 500; color: #64748b;">Clean Light Layout</span>
         </div>
         
         <div class="dark-email-frame-wrap">
