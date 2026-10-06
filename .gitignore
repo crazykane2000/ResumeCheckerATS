@@ -3,6 +3,7 @@
 !/uploads/.gitkeep
 !/uploads/.htaccess
 /u157534802_resume1.sql
+/*.sql
 
 # Composer-generated dependencies
 /vendor/
