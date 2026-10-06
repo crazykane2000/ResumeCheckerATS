@@ -371,12 +371,26 @@ require_once __DIR__ . '/views/partials/header.php';
 
       <!-- Card 3: Recipient Selection & Calculation -->
       <div class="card">
-        <div class="card-title"><i class="fa-solid fa-user-group"></i> 3. Recipient Selection</div>
+        <div class="card-title"><i class="fa-solid fa-user-group"></i> 3. Recipient Selection & Filters</div>
         
         <div class="stat-pills">
-          <div class="stat-pill"><div class="num" id="statTotal">0</div><div class="lbl">Total Found</div></div>
-          <div class="stat-pill eligible"><div class="num" id="statEligible">0</div><div class="lbl">Eligible</div></div>
-          <div class="stat-pill excluded"><div class="num" id="statExcluded">0</div><div class="lbl">Excluded</div></div>
+          <div class="stat-pill" onclick="switchInspectionTab('eligible')" style="cursor: pointer;">
+            <div class="num" id="statTotal">0</div>
+            <div class="lbl">Total Found</div>
+          </div>
+          <div class="stat-pill eligible" onclick="switchInspectionTab('eligible')" style="cursor: pointer; border: 2px solid #16a34a;" id="pillEligible">
+            <div class="num" id="statEligible">0</div>
+            <div class="lbl">Eligible (Included)</div>
+          </div>
+          <div class="stat-pill excluded" onclick="switchInspectionTab('excluded')" style="cursor: pointer;" id="pillExcluded">
+            <div class="num" id="statExcluded">0</div>
+            <div class="lbl">Excluded</div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="skillFilterInput">Filter by Skill Keyword</label>
+          <input type="text" id="skillFilterInput" class="form-control" placeholder="e.g. React, Node, Web3, Python" oninput="onRecipientFilterChange()">
         </div>
 
         <div class="form-group" style="margin-top: 10px;">
@@ -388,13 +402,16 @@ require_once __DIR__ . '/views/partials/header.php';
           </div>
         </div>
 
-        <div style="margin-top: 12px;">
-          <button class="btn-secondary" style="width: 100%; text-align: center;" onclick="toggleRecipientInspection()">
-            <i class="fa-solid fa-eye"></i> Inspect Recipient Candidates List (<span id="eligibleBtnCount">0</span>)
+        <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-size: 12px; font-weight: 700; color: #334155;" id="inspectionTabHeader">
+            Eligible Recipients (<span id="eligibleBtnCount">0</span>)
+          </div>
+          <button class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="toggleAllCandidateCheckboxes()" id="btnSelectDeselectAll">
+            Deselect All
           </button>
         </div>
 
-        <div id="recipientInspectionBox" class="recipient-inspection-box" style="display: none; margin-top: 10px;">
+        <div id="recipientInspectionBox" class="recipient-inspection-box" style="margin-top: 8px; max-height: 240px;">
           <div id="recipientListRows" style="padding: 4px;"></div>
         </div>
       </div>
@@ -507,6 +524,49 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+let manualExcludedIds = {};
+let currentInspectionTab = 'eligible';
+
+function switchInspectionTab(tab) {
+  currentInspectionTab = tab;
+  const pillEligible = document.getElementById('pillEligible');
+  const pillExcluded = document.getElementById('pillExcluded');
+  if (pillEligible) pillEligible.style.border = (tab === 'eligible') ? '2px solid #16a34a' : '1px solid #e2e8f0';
+  if (pillExcluded) pillExcluded.style.border = (tab === 'excluded') ? '2px solid #dc2626' : '1px solid #e2e8f0';
+  
+  if (tab === 'eligible') {
+    document.getElementById('inspectionTabHeader').innerHTML = `Eligible Recipients (${currentRecipientsData ? currentRecipientsData.eligible_count : 0})`;
+    document.getElementById('btnSelectDeselectAll').style.display = 'inline-block';
+    renderEligibleRecipientList(currentRecipientsData ? currentRecipientsData.eligible : []);
+  } else {
+    document.getElementById('inspectionTabHeader').innerHTML = `Excluded Candidates & Reasons (${currentRecipientsData ? currentRecipientsData.excluded_count : 0})`;
+    document.getElementById('btnSelectDeselectAll').style.display = 'none';
+    renderExcludedCandidateList(currentRecipientsData ? currentRecipientsData.excluded : []);
+  }
+}
+
+function toggleCandidateSelection(candId, isChecked) {
+  if (isChecked) {
+    delete manualExcludedIds[candId];
+  } else {
+    manualExcludedIds[candId] = true;
+  }
+  onRecipientFilterChange();
+}
+
+function toggleAllCandidateCheckboxes() {
+  if (!currentRecipientsData || !currentRecipientsData.eligible) return;
+  const btn = document.getElementById('btnSelectDeselectAll');
+  if (btn.innerText.trim() === 'Deselect All') {
+    currentRecipientsData.eligible.forEach(c => { manualExcludedIds[c.id] = true; });
+    btn.innerText = 'Select All';
+  } else {
+    manualExcludedIds = {};
+    btn.innerText = 'Deselect All';
+  }
+  onRecipientFilterChange();
+}
+
 function toggleJobCheckbox(jobId) {
   const cb = document.querySelector(`.job-checkbox[value="${jobId}"]`);
   if (cb && event.target !== cb) {
@@ -527,13 +587,20 @@ function onRecipientFilterChange() {
   if (document.getElementById('exJoined').checked) excludeStages.push('Joined');
   if (document.getElementById('exRejected').checked) excludeStages.push('Rejected');
 
+  const skillQuery = document.getElementById('skillFilterInput') ? document.getElementById('skillFilterInput').value : '';
+  const manualIds = Object.keys(manualExcludedIds);
+
   fetch('outreach_action.php?action=calculate_recipients', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
     body: JSON.stringify({
       csrf: CSRF_TOKEN,
       selected_job_ids: selectedJobIds,
-      filters: { exclude_stages: excludeStages }
+      filters: {
+        exclude_stages: excludeStages,
+        manual_excluded_ids: manualIds,
+        skill_query: skillQuery
+      }
     })
   })
   .then(res => res.json())
@@ -545,25 +612,45 @@ function onRecipientFilterChange() {
       document.getElementById('statExcluded').innerText = res.data.excluded_count;
       document.getElementById('eligibleBtnCount').innerText = res.data.eligible_count;
 
-      renderRecipientInspectionList(res.data.eligible);
+      switchInspectionTab(currentInspectionTab);
       updateLivePreview();
     }
   });
 }
 
-function renderRecipientInspectionList(eligible) {
+function renderEligibleRecipientList(eligible) {
   const container = document.getElementById('recipientListRows');
   if (!eligible || eligible.length === 0) {
     container.innerHTML = '<div style="padding: 8px; color: #64748b;">No eligible candidates selected.</div>';
     return;
   }
   let html = '';
-  eligible.slice(0, 50).forEach(c => {
-    html += `<div class="recipient-row"><span><strong>${escapeHtml(c.name)}</strong> (${escapeHtml(c.email)})</span><span style="color:#64748b;">${escapeHtml(c.stage)}</span></div>`;
+  eligible.forEach(c => {
+    const isUnchecked = manualExcludedIds[c.id] ? '' : 'checked';
+    html += `<div class="recipient-row">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="checkbox" ${isUnchecked} onchange="toggleCandidateSelection('${c.id}', this.checked)">
+        <span><strong>${escapeHtml(c.name)}</strong> (${escapeHtml(c.email)})</span>
+      </label>
+      <span style="color:#64748b; font-size:11px;">${escapeHtml(c.stage)}</span>
+    </div>`;
   });
-  if (eligible.length > 50) {
-    html += `<div style="padding: 6px; text-align: center; color: #64748b;">...and ${eligible.length - 50} more candidates</div>`;
+  container.innerHTML = html;
+}
+
+function renderExcludedCandidateList(excluded) {
+  const container = document.getElementById('recipientListRows');
+  if (!excluded || excluded.length === 0) {
+    container.innerHTML = '<div style="padding: 8px; color: #16a34a; font-weight:600;">No candidates excluded. All found candidates are eligible!</div>';
+    return;
   }
+  let html = '';
+  excluded.forEach(c => {
+    html += `<div class="recipient-row" style="background:#fef2f2;">
+      <span><strong>${escapeHtml(c.name || 'Candidate')}</strong> (${escapeHtml(c.email || 'No email')})</span>
+      <span style="color:#dc2626; font-weight:600; font-size:11px;">${escapeHtml(c.reason)}</span>
+    </div>`;
+  });
   container.innerHTML = html;
 }
 

@@ -72,7 +72,10 @@ function calculateCampaignRecipients(PDO $pdo, array $selectedJobIds, array $fil
     $seenEmails = [];
 
     $excludeStages = array_flip($filters['exclude_stages'] ?? []); // e.g. ['Offered', 'Joined', 'Rejected']
-    $recentContactCutoff = !empty($filters['exclude_recent_days']) ? date('Y-m-d H:i:s', strtotime('-' . (int)$filters['exclude_recent_days'] . ' days')) : null;
+    $manualExcludedIds = array_flip($filters['manual_excluded_ids'] ?? []);
+    $skillQuery = strtolower(trim((string)($filters['skill_query'] ?? '')));
+    $minExp = isset($filters['min_exp']) && $filters['min_exp'] !== '' ? (float)$filters['min_exp'] : null;
+    $maxExp = isset($filters['max_exp']) && $filters['max_exp'] !== '' ? (float)$filters['max_exp'] : null;
 
     foreach ($allCandidates as $candidate) {
         $candidateJobId = (int)($candidate['job_id'] ?? 0);
@@ -91,29 +94,44 @@ function calculateCampaignRecipients(PDO $pdo, array $selectedJobIds, array $fil
 
         // Safety Exclusions
         if ($email === '') {
-            $excluded[] = ['candidate' => $candidate, 'reason' => 'Missing Email Address'];
+            $excluded[] = ['id' => $id, 'name' => $name, 'email' => $email, 'stage' => $stage, 'reason' => 'Missing Email Address'];
             continue;
         }
 
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $excluded[] = ['candidate' => $candidate, 'reason' => 'Invalid Email Format (' . $email . ')'];
+            $excluded[] = ['id' => $id, 'name' => $name, 'email' => $email, 'stage' => $stage, 'reason' => 'Invalid Email Format (' . $email . ')'];
             continue;
         }
 
         if (isset($suppressed[$email])) {
-            $excluded[] = ['candidate' => $candidate, 'reason' => 'Email Suppressed / Unsubscribed'];
+            $excluded[] = ['id' => $id, 'name' => $name, 'email' => $email, 'stage' => $stage, 'reason' => 'Email Suppressed / Unsubscribed'];
             continue;
         }
 
         if (isset($seenEmails[$email])) {
-            $excluded[] = ['candidate' => $candidate, 'reason' => 'Duplicate Email in Campaign Selection'];
+            $excluded[] = ['id' => $id, 'name' => $name, 'email' => $email, 'stage' => $stage, 'reason' => 'Duplicate Email in Campaign Selection'];
             continue;
         }
 
-        // Optional exclusions
+        // Optional stage exclusions
         if (!empty($excludeStages) && isset($excludeStages[$stage])) {
-            $excluded[] = ['candidate' => $candidate, 'reason' => 'Excluded Stage (' . $stage . ')'];
+            $excluded[] = ['id' => $id, 'name' => $name, 'email' => $email, 'stage' => $stage, 'reason' => 'Excluded Stage (' . $stage . ')'];
             continue;
+        }
+
+        // Manual check exclusion
+        if (isset($manualExcludedIds[$id])) {
+            $excluded[] = ['id' => $id, 'name' => $name, 'email' => $email, 'stage' => $stage, 'reason' => 'Manually Unchecked by Recruiter'];
+            continue;
+        }
+
+        // Skill query filter if specified
+        if ($skillQuery !== '') {
+            $candidateSkills = strtolower(is_array($candidate['skills_json'] ?? null) ? implode(' ', $candidate['skills_json']) : (string)($candidate['skills_json'] ?? ''));
+            if (strpos($candidateSkills, $skillQuery) === false) {
+                $excluded[] = ['id' => $id, 'name' => $name, 'email' => $email, 'stage' => $stage, 'reason' => 'Does not match skill keyword (' . $skillQuery . ')'];
+                continue;
+            }
         }
 
         $seenEmails[$email] = true;
@@ -137,6 +155,20 @@ function calculateCampaignRecipients(PDO $pdo, array $selectedJobIds, array $fil
 }
 
 function renderHiringOutreachEmailHtml(string $candidateName, array $jobTitles, string $careerUrl): string {
+    require_once __DIR__ . '/branding.php';
+    $brand = organizationBrand();
+    $brandName = htmlspecialchars($brand['name'] ?: 'NonceBlox ATS', ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $logoPath = trim((string)($brand['logo_path'] ?? ''));
+
+    $logoHtml = '';
+    if ($logoPath !== '') {
+        $baseUrl = (isset($_SERVER['HTTP_HOST']) && $_SERVER['HTTP_HOST']) ? (($_SERVER['REQUEST_SCHEME'] ?? 'http') . '://' . $_SERVER['HTTP_HOST'] . '/') : 'http://127.0.0.1:8000/';
+        $fullLogoUrl = str_starts_with($logoPath, 'http') ? $logoPath : ($baseUrl . ltrim($logoPath, '/'));
+        $logoHtml = '<div style="background:#ffffff; border-radius:8px; padding:6px 14px; display:inline-block; box-shadow:0 2px 6px rgba(0,0,0,0.15);"><img src="' . htmlspecialchars($fullLogoUrl, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '" alt="' . $brandName . '" style="max-height:38px; max-width:220px; display:block; object-fit:contain;"></div>';
+    } else {
+        $logoHtml = '<div style="background:#ffffff; border-radius:8px; padding:8px 16px; display:inline-block; font-weight:800; color:#1e1934; font-size:18px; letter-spacing:0.5px;">' . $brandName . '</div>';
+    }
+
     $safeName = trim(htmlspecialchars($candidateName, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
     $greeting = ($safeName !== '' && strcasecmp($safeName, 'Candidate') !== 0) ? "Hi {$safeName}," : "Hi there,";
     $safeUrl = htmlspecialchars($careerUrl, ENT_QUOTES | ENT_HTML5, 'UTF-8');
@@ -152,17 +184,17 @@ function renderHiringOutreachEmailHtml(string $candidateName, array $jobTitles, 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>We\'re hiring — NonceBlox</title>
+  <title>We\'re hiring — ' . $brandName . '</title>
 </head>
 <body style="margin:0; padding:0; background-color:#0f0c1b; font-family:\'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; color:#e2e8f0; -webkit-font-smoothing:antialiased;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0f0c1b; padding:32px 16px;">
     <tr>
       <td align="center">
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%; max-width:600px; background-color:#161224; border:1px solid #28223b; border-radius:12px; overflow:hidden; box-shadow:0 8px 32px rgba(0,0,0,0.4);">
-          <!-- Header Bar -->
+          <!-- Header Bar with Organization Brand Logo -->
           <tr>
-            <td style="padding:28px 32px; background:linear-gradient(135deg, #1f1934 0%, #161224 100%); border-bottom:1px solid #28223b;">
-              <span style="font-size:18px; font-weight:700; color:#a78bfa; letter-spacing:0.5px;">NONCEBLOX HIRING</span>
+            <td style="padding:24px 32px; background:linear-gradient(135deg, #1f1934 0%, #161224 100%); border-bottom:1px solid #28223b;">
+              ' . $logoHtml . '
             </td>
           </tr>
           <!-- Body Content -->
