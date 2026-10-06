@@ -5,7 +5,8 @@ $nav=[
   ['dashboard','dashboard.php','fa-chart-pie','Dashboard','Dashboard — Overview & Activity'],
   ['analytics','analytics.php','fa-chart-line','Analytics','Analytics — Hiring Metrics'],
   ['calendar','interview_calendar.php','fa-calendar-days','Interviews','Interviews — Candidate Slots'],
-  ['outreach','outreach.php','fa-paper-plane','Outreach','Outreach — Email Invitations'],
+  ['outreach','outreach.php','fa-paper-plane','Hiring Outreach','Hiring Outreach — Create Campaign'],
+  ['outreach_history','outreach_history.php','fa-clock-rotate-left','Outreach History','Outreach History — Campaign Reports'],
   ['candidates','candidates.php','fa-users','Candidates','Candidates — Applicant Database'],
   ['integrations','integrations.php','fa-plug','Integrations','Integrations — Email & SMTP'],
   ['settings','settings.php','fa-gear','Settings','Settings — Account & Branding']
