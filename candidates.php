@@ -90,6 +90,16 @@ $oldCount=0;
 $analyzedCount=0;
 $drawerData=[];
 
+foreach($items as $item){
+    $src=normalizeCandidateSource($item['source']??'');
+    if($src!=='')$sources[$src]=$src;
+    foreach($item['skills']??[] as $skill)if(trim((string)$skill)!=='') $skills[mb_strtolower(trim((string)$skill))]=trim((string)$skill);
+    $cCode=strtoupper(trim((string)($item['country_code']??'')));
+    $cName=trim((string)($item['country_name']??''));
+    if($cCode!=='')$countries[$cCode]=$cName?:$cCode;
+    elseif($cName!=='')$countries[$cName]=$cName;
+}
+
 foreach($items as $candidate){
     $cJobId=(int)($candidate['job_id']??0);
     if($activeJobId > 0 && $cJobId !== $activeJobId){
@@ -111,13 +121,8 @@ foreach($items as $candidate){
     $candName=candidatePresentation($candidate);
     $cSource=normalizeCandidateSource($candidate['source']??'');
 
-    foreach($candidate['skills']??[] as $skill)if(trim((string)$skill)!=='')$skills[mb_strtolower(trim((string)$skill))]=trim((string)$skill);
-    if($cSource!=='')$sources[$cSource]=$cSource;
-
     $cCode=strtoupper(trim((string)($candidate['country_code']??'')));
     $cName=trim((string)($candidate['country_name']??''));
-    if($cCode!=='')$countries[$cCode]=$cName?:$cCode;
-    elseif($cName!=='')$countries[$cName]=$cName;
 
     $cand=['id'=>$candidate['id'],'job_id'=>$cJobId,'job_title'=>trim((string)($candidate['job_title']??$candName['role']??'General')),'name'=>$candName['name'],'created_at'=>(string)($candidate['created_at']??''),'role'=>$candName['role'],'email'=>$candidate['email'],'phone'=>$candidate['phone'],'country_code'=>$cCode,'country_name'=>$cName,'source'=>$cSource?:'Direct upload','stage'=>$candidate['stage']??'Applied','skills'=>$candidate['skills']??[],'experience'=>$exp,'age'=>candidateApplicationAge($candidate),'old'=>$old,'job_score'=>$match['score'],'configured'=>(bool)($match['configured']??false),'analyzed'=>(bool)($match['analyzed']??false),'matched'=>array_column(array_filter($match['mapping']??[],fn($item)=>($item['status']??'')==='experience_backed'),'requirement'),'review'=>array_column(array_filter($match['mapping']??[],fn($item)=>in_array($item['status']??'',['skills_only','related_review'],true)),'requirement'),'missing'=>array_column(array_filter($match['mapping']??[],fn($item)=>($item['status']??'')==='not_found'),'requirement'),'benefits'=>array_slice($match['preferred_matched']??[],0,16),'breakdown'=>$match['breakdown']??[],'maximum'=>$match['maximum']??[]];
     $candidates[]=$cand;

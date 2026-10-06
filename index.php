@@ -44,7 +44,11 @@ function extractCandidateNameInfo(string $text): array {
 
         $cleanLine = trim(preg_replace('/[^\p{L}\s\.-]/u', ' ', $line));
         $cleanLine = trim(preg_replace('/\s+/', ' ', $cleanLine));
-        $words = explode(' ', $cleanLine);
+        if (mb_strlen($cleanLine) < 3 || !preg_match('/[\p{L}]{2,}/u', $cleanLine)) {
+            continue;
+        }
+
+        $words = array_values(array_filter(explode(' ', $cleanLine)));
 
         if (count($words) >= 1 && count($words) <= 5 && mb_strlen($cleanLine) <= 50) {
             $isNameCandidate = true;
@@ -59,7 +63,10 @@ function extractCandidateNameInfo(string $text): array {
                 if (isset($lines[$idx + 1])) {
                     $next = trim($lines[$idx + 1]);
                     if (!preg_match('/@|http|\+?\d{8,}/', $next) && mb_strlen($next) <= 60 && mb_strlen($next) >= 3) {
-                        $role = ucwords(mb_strtolower($next));
+                        $cleanRole = trim(preg_replace('/[^\p{L}\s\.-]/u', ' ', $next));
+                        if (mb_strlen($cleanRole) >= 3) {
+                            $role = ucwords(mb_strtolower($cleanRole));
+                        }
                     }
                 }
                 break;
@@ -376,6 +383,10 @@ function formatBytes(int $bytes): string {
         return number_format($bytes / 1048576, 2) . ' MB';
     }
     return number_format($bytes / 1024, 1) . ' KB';
+}
+
+if (defined('RESUMEIQ_FUNCTIONS_ONLY') && RESUMEIQ_FUNCTIONS_ONLY) {
+    return;
 }
 
 $result = null;
