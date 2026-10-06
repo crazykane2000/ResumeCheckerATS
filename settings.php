@@ -59,8 +59,7 @@ $pageTitle = 'Workspace Settings · NonceBlox ATS';
 
 $pageStyles = '<style>
 .settings-container {
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
 }
 .settings-head {
   display: flex;

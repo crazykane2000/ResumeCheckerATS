@@ -86,8 +86,7 @@ $pageTitle = 'Integrations & Credentials · NonceBlox ATS';
 
 $pageStyles = '<style>
 .integrations-container {
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
 }
 .integrations-head {
   display: flex;
