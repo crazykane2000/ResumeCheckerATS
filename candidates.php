@@ -19,6 +19,11 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
         $jobId=(int)($_POST['job_id']??0);
         $profileId=(int)($_POST['profile_id']??0);
         $candidateIds=array_values(array_unique(array_filter(array_map('strval',$_POST['candidate_ids']??[]))));
+        if(!$jobId && !empty($candidateIds)){
+            $firstCandStmt=$pdo->prepare('SELECT job_id FROM candidates WHERE id=? AND job_id IS NOT NULL AND job_id > 0');
+            $firstCandStmt->execute([$candidateIds[0]]);
+            $jobId=(int)$firstCandStmt->fetchColumn();
+        }
         if($jobId > 0 && !$profileId){
             $profileCheck=$pdo->prepare('SELECT id FROM wishlist_profiles WHERE job_id=? AND user_id=? ORDER BY id LIMIT 1');
             $profileCheck->execute([$jobId,$user['id']]);
@@ -539,7 +544,7 @@ function filterCandidates(){
     filterCount.textContent=shown+' candidates';
 }
 
-[filterSearch,filterSkill,filterExperience,filterSource,filterScore,filterAge,filterStage,filterSort].forEach(control=>control.addEventListener('input',filterCandidates));
+[filterSearch,filterSkill,filterExperience,filterSource,filterScore,filterAge,filterStage,filterSort].forEach(control=>{ if(control) control.addEventListener('input',filterCandidates); });
 
 const skillSelect=document.getElementById('filterSkill'),
 skillField=skillSelect?.closest('.filter-field');
@@ -577,17 +582,19 @@ updateSelected=()=>{if(selectedCountElement)selectedCountElement.textContent=box
 boxes.forEach(b=>b.addEventListener('change',updateSelected));
 updateSelected();
 
-drawerFavourite.onclick=()=>{
-    let b=document.querySelector('input[name="candidate_ids[]"][value="'+CSS.escape(drawer.dataset.id)+'"]');
-    if(b&&!b.disabled){
-        b.checked=!b.checked;
-        updateSelected();
-    }
-};
+if(drawerFavourite){
+    drawerFavourite.onclick=()=>{
+        let b=document.querySelector('input[name="candidate_ids[]"][value="'+CSS.escape(drawer.dataset.id)+'"]');
+        if(b&&!b.disabled){
+            b.checked=!b.checked;
+            updateSelected();
+        }
+    };
+}
 
 const saveBar=document.querySelector('.save-bar'),
 inviteLocks=<?=json_encode(array_keys($inviteLocks))?>;
-if(saveBar && <?=$activeJobId > 0 ? 'true' : 'false'?>){
+if(saveBar){
     const invite=document.createElement('button');
     invite.type='submit';
     invite.name='action';
@@ -603,6 +610,7 @@ inviteLocks.forEach(id=>{
         box.disabled=true;
         box.closest('tr')?.classList.add('invite-locked');
         box.closest('td')?.insertAdjacentHTML('beforeend','<small style="display:block;color:#087a52;font-size:8px;font-weight:700">Invited</small>');
+    }
 });
 </script>
 <?php require __DIR__.'/views/partials/footer.php'; ?>

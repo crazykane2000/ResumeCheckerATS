@@ -33,6 +33,8 @@ $profile=$stmt->fetch()?:null;
 $required=$profile?(json_decode($profile['required_skills_json']??'[]',true)?:[]):(json_decode($candidate['job']['required_skills_json']??'[]',true)?:[]);
 $match=profileSkillMatch($candidate,$required);
 
+$evidenceMatch = $candidate['job_match'] ?? applicationEvidenceMatch($candidate, $candidate['job']??[]);
+
 $skillValues=array_values($experience['skill_months']??[]);
 $maxSkill=$skillValues?max($skillValues):1;
 
@@ -40,197 +42,647 @@ $isOldCandidate=candidateIsOldApplication($candidate);
 $candidateAgeStr=candidateApplicationAge($candidate);
 $activityTimeline=candidateActivityTimeline($pdo, $candidate);
 
+$scorePercent = $evidenceMatch['analyzed'] ? (int)$evidenceMatch['score'] : null;
+$scoreBreakdown = $evidenceMatch['breakdown'] ?? [];
+$scoreMax = $evidenceMatch['maximum'] ?? [];
+
 $activePage='candidates';
 $pageTitle=$d['name'].' · Candidate Profile';
 $pageStyles=<<<'CSS'
 <style>
-.candidate-head{padding:22px;display:flex;align-items:center;gap:14px;background:radial-gradient(circle at 85% 15%,#e9e1ff 0,transparent 30%),linear-gradient(120deg,#fff 48%,#f4f1ff 78%,#edfff8)}.candidate-head h1{font-size:24px;margin:5px 0}.candidate-head p,.muted{font-size:11px;color:var(--muted)}.score{margin-left:auto;font-size:26px;color:var(--primary);font-weight:700}.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.detail-panel{padding:18px}.detail-panel h2{font-size:14px;margin-top:0;margin-bottom:12px}.pills{display:flex;gap:6px;flex-wrap:wrap}.pill{padding:5px 8px;border-radius:6px;background:var(--green-soft);color:var(--green);font-size:10px;font-weight:600}.missing{background:#fff1f3;color:var(--danger)}.benefit{background:#eef4ff;color:#3568b8}.timeline{border-left:2px solid #e5dfff;padding-left:16px}.event{padding-bottom:14px}.event strong{display:block;font-size:11px}.skill-row{display:grid;grid-template-columns:110px 1fr 45px;gap:8px;margin:9px 0;font-size:10px}.bar{height:7px;background:#eee;border-radius:4px;overflow:hidden}.bar i{display:block;height:100%;background:var(--primary)}.activity-timeline-list{position:relative;margin-left:10px;padding-left:24px;border-left:2px solid #d9d0ff}.activity-event{position:relative;padding-bottom:18px}.activity-event .activity-icon{position:absolute;left:-35px;top:0;width:22px;height:22px;border-radius:50%;background:#fff;border:2px solid var(--primary);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--primary)}.activity-event.state-success .activity-icon{border-color:#087a55;color:#087a55;background:#edfaf5}.activity-event.state-danger .activity-icon{border-color:#b4233c;color:#b4233c;background:#fff0f2}.activity-event.state-info .activity-icon{border-color:#6f45ff;color:#6f45ff;background:#f0ebff}@media(max-width:760px){.detail-grid{grid-template-columns:1fr}}
+:root{
+  --cd-bg-card:#ffffff;
+  --cd-purple-grad:linear-gradient(135deg,#6f45ff 0%,#8d63ff 100%);
+  --cd-mint-soft:#eefbf5;
+  --cd-mint-border:#c3f0db;
+  --cd-mint-text:#087a55;
+  --cd-red-soft:#fff0f2;
+  --cd-red-border:#ffccd5;
+  --cd-red-text:#b4233c;
+}
+
+.cd2-hero{
+  position:relative;
+  padding:28px;
+  background:radial-gradient(circle at 90% 10%,#ede8ff 0,transparent 40%),linear-gradient(125deg,#ffffff 40%,#f6f3ff 75%,#edfaf5);
+  border-radius:12px;
+  box-shadow:0 12px 34px rgba(35,25,80,.055);
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:24px;
+  align-items:center;
+  overflow:hidden;
+}
+.cd2-hero:after{
+  content:"";
+  position:absolute;
+  right:-30px;
+  bottom:-40px;
+  width:160px;
+  height:160px;
+  border:28px solid #ffffff60;
+  border-radius:50%;
+  pointer-events:none;
+}
+.cd2-avatar-wrap{
+  display:flex;
+  gap:18px;
+  align-items:center;
+}
+.cd2-avatar{
+  width:64px;
+  height:64px;
+  border-radius:16px;
+  background:var(--cd-purple-grad);
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:24px;
+  font-weight:700;
+  box-shadow:0 8px 24px rgba(111,69,255,.28);
+  flex-shrink:0;
+}
+.cd2-meta-title{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.cd2-meta-title h1{
+  margin:0;
+  font-size:26px;
+  font-weight:700;
+}
+.cd2-sub{
+  margin:6px 0 0;
+  font-size:12px;
+  color:var(--muted);
+  display:flex;
+  gap:14px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+.cd2-sub span{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+}
+
+/* Score Donut Ring */
+.cd2-score-box{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+}
+.cd2-donut-chart{
+  position:relative;
+  width:110px;
+  height:110px;
+}
+.cd2-donut-chart svg{
+  width:100%;
+  height:100%;
+  transform:rotate(-90deg);
+}
+.cd2-donut-bg{
+  fill:none;
+  stroke:#e6e1f7;
+  stroke-width:8;
+}
+.cd2-donut-val{
+  fill:none;
+  stroke:url(#scoreGrad);
+  stroke-width:8;
+  stroke-dasharray:283;
+  stroke-linecap:round;
+  transition:stroke-dashoffset 1s ease;
+}
+.cd2-donut-text{
+  position:absolute;
+  inset:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+}
+.cd2-donut-text strong{
+  font-size:24px;
+  font-weight:700;
+  color:var(--primary);
+  line-height:1;
+}
+.cd2-donut-text span{
+  font-size:9px;
+  color:var(--muted);
+  text-transform:uppercase;
+  margin-top:2px;
+}
+
+/* Stale Banner */
+.cd2-banner{
+  margin-top:14px;
+  padding:16px 20px;
+  border-radius:10px;
+  display:flex;
+  gap:14px;
+  align-items:flex-start;
+  box-shadow:0 6px 20px rgba(0,0,0,.02);
+}
+.cd2-banner.old{
+  background:var(--cd-red-soft);
+  border:1px solid var(--cd-red-border);
+  color:var(--cd-red-text);
+}
+.cd2-banner.fresh{
+  background:var(--cd-mint-soft);
+  border:1px solid var(--cd-mint-border);
+  color:var(--cd-mint-text);
+}
+
+/* Actions Toolbar */
+.cd2-toolbar{
+  margin-top:14px;
+  padding:14px 20px;
+  background:#fff;
+  border-radius:10px;
+  border:1px solid var(--line);
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+}
+.cd2-toolbar-group{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+/* Grid & Cards */
+.cd2-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:14px;
+  margin-top:14px;
+}
+.cd2-card{
+  padding:20px;
+  background:#fff;
+  border-radius:10px;
+  border:1px solid var(--line);
+  box-shadow:0 8px 24px rgba(35,25,80,.03);
+}
+.cd2-card h3{
+  margin:0 0 14px;
+  font-size:14px;
+  font-weight:700;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+
+/* Composition Progress Bars */
+.comp-bar-group{
+  display:grid;
+  gap:10px;
+}
+.comp-bar-row{
+  display:grid;
+  grid-template-columns:130px 1fr 45px;
+  gap:10px;
+  align-items:center;
+  font-size:11px;
+}
+.comp-bar-track{
+  height:9px;
+  background:#eeeaf7;
+  border-radius:6px;
+  overflow:hidden;
+}
+.comp-bar-fill{
+  height:100%;
+  border-radius:6px;
+  background:linear-gradient(90deg,#6f45ff,#9f7fff);
+  transition:width 0.8s ease;
+}
+
+/* Skill Chips Matrix */
+.chip-group{
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px;
+}
+.chip-item{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 10px;
+  border-radius:6px;
+  font-size:10px;
+  font-weight:600;
+}
+.chip-item.matched{
+  background:#eafaf4;
+  color:#087a55;
+  border:1px solid #bfe9d8;
+}
+.chip-item.missing{
+  background:#fff0f2;
+  color:#b4233c;
+  border:1px solid #ffccd5;
+}
+.chip-item.benefit{
+  background:#eef4ff;
+  color:#3565bc;
+  border:1px solid #d4e3ff;
+}
+
+/* Interactive Career Timeline */
+.timeline-track{
+  position:relative;
+  margin-left:8px;
+  padding-left:22px;
+  border-left:2px dashed #d9d0ff;
+}
+.timeline-node{
+  position:relative;
+  padding-bottom:18px;
+}
+.timeline-node:before{
+  content:"";
+  position:absolute;
+  left:-28px;
+  top:2px;
+  width:12px;
+  height:12px;
+  border-radius:50%;
+  background:#6f45ff;
+  box-shadow:0 0 0 4px #eee9ff;
+}
+.timeline-node strong{
+  font-size:12px;
+  display:block;
+}
+.timeline-node p{
+  margin:3px 0 0;
+  font-size:10px;
+  color:var(--muted);
+  line-height:1.5;
+}
+
+/* Activity Audit Feed */
+.audit-feed{
+  position:relative;
+  margin-left:10px;
+  padding-left:24px;
+  border-left:2px solid #e0dafc;
+}
+.audit-item{
+  position:relative;
+  padding-bottom:18px;
+}
+.audit-icon-badge{
+  position:absolute;
+  left:-35px;
+  top:0;
+  width:24px;
+  height:24px;
+  border-radius:50%;
+  background:#fff;
+  border:2px solid var(--primary);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:10px;
+  color:var(--primary);
+}
+.audit-item.state-success .audit-icon-badge{
+  border-color:#087a55;
+  color:#087a55;
+  background:#edfaf5;
+}
+.audit-item.state-danger .audit-icon-badge{
+  border-color:#b4233c;
+  color:#b4233c;
+  background:#fff0f2;
+}
+
+@media(max-width:900px){
+  .cd2-hero{
+    grid-template-columns:1fr;
+  }
+  .cd2-grid{
+    grid-template-columns:1fr;
+  }
+}
 </style>
 CSS;
 
 require __DIR__.'/views/partials/header.php';
 ?>
-<section class="panel candidate-head">
-    <div>
-        <a class="muted" href="candidates.php"><i class="fa-solid fa-arrow-left"></i> Back to candidates</a>
-        <h1><?=htmlspecialchars($d['name'])?></h1>
-        <p><?=htmlspecialchars($d['role'])?> · Job: <?=htmlspecialchars($candidate['job_title']??'General')?> · Source: <?=htmlspecialchars($candidate['source']??'Unknown')?> · <?=htmlspecialchars($candidate['country_name']??'Country unavailable')?></p>
+
+<!-- Hero Header Card -->
+<section class="cd2-hero">
+    <div class="cd2-avatar-wrap">
+        <div class="cd2-avatar">
+            <?=htmlspecialchars(strtoupper(substr($d['name'],0,2)))?>
+        </div>
+        <div>
+            <div style="margin-bottom:4px">
+                <a class="muted" href="candidates.php" style="font-size:10px"><i class="fa-solid fa-arrow-left"></i> Back to Candidate Intelligence</a>
+            </div>
+            <div class="cd2-meta-title">
+                <h1><?=htmlspecialchars($d['name'])?></h1>
+                <span class="tag" style="background:#f0ebff;color:var(--primary);font-weight:700"><?=htmlspecialchars($candidate['stage']??'Applied')?></span>
+            </div>
+            <div class="cd2-sub">
+                <span><i class="fa-solid fa-briefcase"></i> <?=htmlspecialchars($d['role'])?></span>
+                <span><i class="fa-solid fa-layer-group"></i> Target Job: <?=htmlspecialchars($candidate['job_title']??'General')?></span>
+                <span><i class="fa-solid fa-globe"></i> <?=htmlspecialchars($candidate['country_name']??'Location unavailable')?></span>
+                <span><i class="fa-solid fa-link"></i> Source: <?=htmlspecialchars($candidate['source']??'Website')?></span>
+            </div>
+        </div>
     </div>
-    <b class="score"><?=$match['analyzed']?$match['score'].'%':($match['configured']?'Needs analysis':'?')?></b>
+
+    <div class="cd2-score-box">
+        <div class="cd2-donut-chart">
+            <svg viewBox="0 0 100 100">
+                <defs>
+                    <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#6f45ff" />
+                        <stop offset="100%" stop-color="#24bd87" />
+                    </linearGradient>
+                </defs>
+                <circle class="cd2-donut-bg" cx="50" cy="50" r="45"></circle>
+                <?php
+                    $scoreVal = $scorePercent ?? 0;
+                    $dashOffset = 283 - (283 * $scoreVal / 100);
+                ?>
+                <circle class="cd2-donut-val" cx="50" cy="50" r="45" style="stroke-dashoffset: <?=$dashOffset?>;"></circle>
+            </svg>
+            <div class="cd2-donut-text">
+                <strong><?=$scorePercent!==null?$scorePercent.'%':'N/A'?></strong>
+                <span>Match Score</span>
+            </div>
+        </div>
+    </div>
 </section>
 
+<!-- 6-Month Application Banner -->
 <?php if($isOldCandidate):?>
-    <div class="panel" style="margin-top:12px;padding:16px;background:#fff0f2;border:1px solid #ffccd5;border-radius:10px;display:flex;gap:14px;align-items:flex-start">
-        <i class="fa-solid fa-triangle-exclamation" style="color:#b4233c;font-size:22px;margin-top:2px"></i>
+    <div class="cd2-banner old">
+        <i class="fa-solid fa-triangle-exclamation" style="font-size:22px;margin-top:2px"></i>
         <div>
-            <h3 style="margin:0 0 4px;font-size:14px;color:#b4233c">🚩 OLD APPLICATION WARNING (Applied/Registered <?=htmlspecialchars($candidateAgeStr)?> ago)</h3>
-            <p style="margin:0;font-size:11px;color:#801b2a;line-height:1.5">
-                This candidate applied/registered on <strong><?=htmlspecialchars(date('d M Y, h:i A', strtotime($candidate['created_at'])))?></strong> (over 6 months ago). 
-                Applications older than 6 months (180 days) are flagged as stale because candidate availability, current employment status, skills, or compensation expectations may have changed since initial registration on the website/career page. Re-verification is recommended before shortlisting or scheduling.
+            <strong style="font-size:13px">🚩 STALE CANDIDATE WARNING (Registered <?=htmlspecialchars($candidateAgeStr)?> ago)</strong>
+            <p style="margin:4px 0 0;font-size:11px;line-height:1.5">
+                Candidate registered/applied on <strong><?=htmlspecialchars(date('d M Y, h:i A', strtotime($candidate['created_at'])))?></strong> (older than 6 months / 180 days). 
+                Details such as active availability, current employer, technical skills, and compensation expectations may have changed since initial career page registration. Re-verification is strongly recommended.
             </p>
         </div>
     </div>
 <?php else:?>
-    <div class="panel" style="margin-top:12px;padding:14px;background:#edfaf5;border:1px solid #bfe9d8;border-radius:10px;display:flex;gap:14px;align-items:center">
-        <i class="fa-solid fa-circle-check" style="color:#087a55;font-size:18px"></i>
+    <div class="cd2-banner fresh">
+        <i class="fa-solid fa-circle-check" style="font-size:18px"></i>
         <div>
-            <strong style="font-size:12px;color:#087a55">ACTIVE RECENT APPLICATION (Registered <?=htmlspecialchars($candidateAgeStr)?>)</strong>
-            <span style="font-size:11px;color:#05593e;display:block">Registered on <?=htmlspecialchars(date('d M Y, h:i A', strtotime($candidate['created_at'])))?> via <?=htmlspecialchars($candidate['source']??'Website')?>.</span>
+            <strong style="font-size:12px">VERIFIED ACTIVE APPLICATION (Registered <?=htmlspecialchars($candidateAgeStr)?>)</strong>
+            <span style="font-size:11px;display:block;margin-top:2px">Application received via <?=htmlspecialchars($candidate['source']??'Website')?> on <?=htmlspecialchars(date('d M Y, h:i A', strtotime($candidate['created_at'])))?>.</span>
         </div>
     </div>
 <?php endif?>
 
-<section class="panel detail-panel" style="margin-top:12px">
-    <h2>Job-specific actions</h2>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <a class="btn btn-primary" target="_blank" href="resume_file.php?id=<?=urlencode($candidate['id'])?>"><i class="fa-solid fa-eye"></i> View resume</a>
-        <a class="btn" href="resume_file.php?id=<?=urlencode($candidate['id'])?>&download=1"><i class="fa-solid fa-download"></i> Download</a>
+<!-- Action Toolbar -->
+<section class="cd2-toolbar">
+    <div class="cd2-toolbar-group">
+        <a class="btn btn-primary" target="_blank" href="resume_file.php?id=<?=urlencode($candidate['id'])?>"><i class="fa-solid fa-eye"></i> View Resume</a>
+        <a class="btn" href="resume_file.php?id=<?=urlencode($candidate['id'])?>&download=1"><i class="fa-solid fa-download"></i> Download PDF</a>
         <?php if(!empty($candidate['source_url'])):?>
-            <a class="btn" target="_blank" rel="noopener noreferrer" href="<?=htmlspecialchars($candidate['source_url'])?>"><i class="fa-solid fa-arrow-up-right-from-square"></i> Original source</a>
+            <a class="btn" target="_blank" rel="noopener noreferrer" href="<?=htmlspecialchars($candidate['source_url'])?>"><i class="fa-solid fa-arrow-up-right-from-square"></i> Original Source</a>
         <?php endif?>
+    </div>
+    <div class="cd2-toolbar-group">
         <?php if($profile):?>
-            <form method="post" action="candidate_wishlist.php" style="display:flex;gap:8px">
+            <form method="post" action="candidate_wishlist.php" style="display:inline">
                 <input type="hidden" name="csrf" value="<?=csrfToken()?>">
                 <input type="hidden" name="candidate_id" value="<?=htmlspecialchars($candidate['id'])?>">
                 <input type="hidden" name="profile_id" value="<?=$profile['id']?>">
-                <button class="btn"><i class="fa-solid fa-heart"></i> Add to wishlist</button>
-                <a class="btn" href="job_profile.php?id=<?=$profile['id']?>">Profile & top 5</a>
+                <button class="btn"><i class="fa-solid fa-heart" style="color:var(--primary)"></i> Toggle Wishlist</button>
             </form>
         <?php endif?>
         <?php if($isOwner):?>
-            <form method="post" action="candidate_delete.php" onsubmit="return confirm('Permanently delete this candidate and related wishlist/email records? This cannot be undone.')">
+            <form method="post" action="candidate_delete.php" style="display:inline" onsubmit="return confirm('Permanently delete candidate profile and activity records?')">
                 <input type="hidden" name="csrf" value="<?=csrfToken()?>">
                 <input type="hidden" name="candidate_id" value="<?=htmlspecialchars($candidate['id'])?>">
                 <input type="hidden" name="return_to" value="candidates">
-                <button class="btn" style="color:var(--danger);border-color:#ffd8df"><i class="fa-solid fa-trash"></i> Delete candidate</button>
+                <button class="btn" style="color:var(--danger);border-color:#ffd8df"><i class="fa-solid fa-trash"></i> Delete Candidate</button>
             </form>
         <?php endif?>
     </div>
-    <?php if(!$profile):?>
-        <div class="empty" style="margin-top:10px">No matching job profile exists for this applicant.</div>
-    <?php endif?>
 </section>
 
-<section class="panel detail-panel" style="margin-top:12px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-        <h2 style="margin:0"><i class="fa-solid fa-clock-rotate-left"></i> Candidate History & Activity Timeline</h2>
-        <span class="muted" style="font-size:11px"><?=count($activityTimeline)?> recorded events</span>
-    </div>
-    <div class="activity-timeline-list">
-        <?php foreach($activityTimeline as $event):
-            $stateClass = match($event['state']??'neutral') {
-                'success' => 'state-success',
-                'danger' => 'state-danger',
-                'info' => 'state-info',
-                default => 'state-neutral'
-            };
-            $iconClass = match($event['type']??'') {
-                'application' => 'fa-file-circle-check',
-                'wishlist' => 'fa-heart',
-                'email' => 'fa-envelope',
-                'interview' => 'fa-calendar-check',
-                'outcome' => 'fa-user-check',
-                default => 'fa-list-check'
-            };
-            $timeFormatted = !empty($event['at']) ? date('d M Y, h:i:s A', strtotime($event['at'])) : 'Unknown time';
-        ?>
-            <div class="activity-event <?=$stateClass?>">
-                <div class="activity-icon">
-                    <i class="fa-solid <?=$iconClass?>"></i>
+<!-- Analytics & Data Visualizations Grid -->
+<section class="cd2-grid">
+    <!-- Score Breakdown Donut / Progress Bar Chart -->
+    <article class="cd2-card">
+        <h3>
+            <span><i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i> Explainable Match Composition</span>
+            <small class="muted" style="font-weight:normal">Evidence v1</small>
+        </h3>
+        <div class="comp-bar-group">
+            <?php
+            $factors = [
+                'required_skills' => ['Required Skills', 40],
+                'relevant_experience' => ['Relevant Experience', 25],
+                'preferred_skills' => ['Preferred Skills', 10],
+                'role_similarity' => ['Role Similarity', 10],
+                'evidence_strength' => ['Evidence Strength', 15],
+            ];
+            foreach($factors as $key=>[$title, $maxPoints]):
+                $val = (float)($scoreBreakdown[$key] ?? 0);
+                $pct = round($val / $maxPoints * 100);
+            ?>
+                <div class="comp-bar-row">
+                    <span><?=htmlspecialchars($title)?></span>
+                    <div class="comp-bar-track">
+                        <div class="comp-bar-fill" style="width: <?=$pct?>%;"></div>
+                    </div>
+                    <b><?=$val?> / <?=$maxPoints?>pt</b>
                 </div>
-                <div style="display:flex;justify-content:space-between;align-items:baseline">
-                    <strong style="font-size:12px"><?=htmlspecialchars($event['title'])?></strong>
-                    <small class="muted" style="font-size:10px"><?=htmlspecialchars($timeFormatted)?></small>
-                </div>
-                <?php if(!empty($event['detail'])):?>
-                    <p style="margin:4px 0 0;font-size:11px;color:var(--muted);line-height:1.5"><?=htmlspecialchars($event['detail'])?></p>
+            <?php endforeach?>
+        </div>
+    </article>
+
+    <!-- Skills Analysis Matrix Card -->
+    <article class="cd2-card">
+        <h3>
+            <span><i class="fa-solid fa-list-check" style="color:var(--primary)"></i> Requirements & Skill Matrix</span>
+        </h3>
+        <div style="margin-bottom:12px">
+            <small class="muted" style="display:block;margin-bottom:5px">Experience-Backed Skills</small>
+            <div class="chip-group">
+                <?php foreach(($evidenceMatch['mapping']??[]) as $item):
+                    if(($item['status']??'')==='experience_backed'):
+                ?>
+                    <span class="chip-item matched"><i class="fa-solid fa-circle-check"></i> <?=htmlspecialchars($item['requirement'])?></span>
+                <?php endif; endforeach?>
+                <?php if(empty(array_filter(($evidenceMatch['mapping']??[]),fn($x)=>($x['status']??'')==='experience_backed'))):?>
+                    <span class="muted" style="font-size:10px">None verified</span>
                 <?php endif?>
             </div>
-        <?php endforeach?>
-        <?php if(empty($activityTimeline)):?>
-            <p class="muted">No historical activity recorded yet.</p>
+        </div>
+
+        <div style="margin-bottom:12px">
+            <small class="muted" style="display:block;margin-bottom:5px">Missing Requirements</small>
+            <div class="chip-group">
+                <?php foreach(($evidenceMatch['mapping']??[]) as $item):
+                    if(($item['status']??'')==='not_found'):
+                ?>
+                    <span class="chip-item missing"><i class="fa-solid fa-triangle-exclamation"></i> <?=htmlspecialchars($item['requirement'])?></span>
+                <?php endif; endforeach?>
+                <?php if(empty(array_filter(($evidenceMatch['mapping']??[]),fn($x)=>($x['status']??'')==='not_found'))):?>
+                    <span class="muted" style="font-size:10px">No missing required skills</span>
+                <?php endif?>
+            </div>
+        </div>
+
+        <div>
+            <small class="muted" style="display:block;margin-bottom:5px">Additional Preferred Skills</small>
+            <div class="chip-group">
+                <?php foreach(array_slice($evidenceMatch['preferred_matched']??[],0,10) as $skill):?>
+                    <span class="chip-item benefit"><i class="fa-solid fa-star"></i> <?=htmlspecialchars($skill)?></span>
+                <?php endforeach?>
+                <?php if(empty($evidenceMatch['preferred_matched'])):?>
+                    <span class="muted" style="font-size:10px">None detected</span>
+                <?php endif?>
+            </div>
+        </div>
+    </article>
+
+    <!-- Skill Tenure Graphs -->
+    <article class="cd2-card">
+        <h3>
+            <span><i class="fa-solid fa-brain" style="color:var(--primary)"></i> Skill Tenure & Experience Graph</span>
+        </h3>
+        <?php if(!empty($experience['skill_months'])):?>
+            <div class="comp-bar-group">
+                <?php foreach($experience['skill_months'] as $skill=>$months):
+                    $yrs = round($months/12, 1);
+                    $pct = round($months/$maxSkill*100);
+                ?>
+                    <div class="comp-bar-row">
+                        <span><?=htmlspecialchars($skill)?></span>
+                        <div class="comp-bar-track">
+                            <div class="comp-bar-fill" style="width: <?=$pct?>%; background:linear-gradient(90deg,#6f45ff,#24bd87)"></div>
+                        </div>
+                        <b><?=$yrs?> yrs</b>
+                    </div>
+                <?php endforeach?>
+            </div>
+        <?php else:?>
+            <p class="muted">No structured skill tenure extracted.</p>
         <?php endif?>
-    </div>
+    </article>
+
+    <!-- Employment Gaps & Stability Card -->
+    <article class="cd2-card">
+        <h3>
+            <span><i class="fa-solid fa-shield-halved" style="color:var(--primary)"></i> Employment Gaps & Stability</span>
+        </h3>
+        <?php if(!empty($experience['gaps'])):?>
+            <div style="display:grid;gap:8px">
+                <?php foreach($experience['gaps'] as $gap):?>
+                    <div class="cd2-banner old" style="margin:0;padding:10px 14px">
+                        <i class="fa-solid fa-triangle-exclamation" style="font-size:16px"></i>
+                        <div>
+                            <strong style="font-size:11px"><?=$gap['months']?> Month Employment Gap</strong>
+                            <span style="display:block;font-size:10px"><?=htmlspecialchars($gap['after'].' to '.$gap['before'])?></span>
+                        </div>
+                    </div>
+                <?php endforeach?>
+            </div>
+        <?php else:?>
+            <div class="cd2-banner fresh" style="margin:0;padding:12px 14px">
+                <i class="fa-solid fa-circle-check" style="font-size:16px"></i>
+                <div>
+                    <strong style="font-size:11px">No Employment Gap (2+ Months) Detected</strong>
+                    <span style="display:block;font-size:10px">Continuous employment across reliably parsed dated roles.</span>
+                </div>
+            </div>
+        <?php endif?>
+    </article>
 </section>
 
-<section class="detail-grid">
-    <article class="panel detail-panel">
-        <h2>Matched required skills</h2>
-        <?php if(!$match['configured']):?>
-            <p class="muted">Configure required skills in this job profile first.</p>
-        <?php endif?>
-        <div class="pills">
-            <?php foreach($match['matched'] as $skill):?>
-                <span class="pill"><?=htmlspecialchars($skill)?></span>
-            <?php endforeach?>
-            <?php if(empty($match['matched'])):?>
-                <span class="muted" style="font-size:11px">None matched</span>
-            <?php endif?>
-        </div>
-    </article>
-    <article class="panel detail-panel">
-        <h2>Missing required skills</h2>
-        <div class="pills">
-            <?php foreach($match['missing'] as $skill):?>
-                <span class="pill missing"><?=htmlspecialchars($skill)?></span>
-            <?php endforeach?>
-            <?php if(empty($match['missing'])):?>
-                <span class="muted" style="font-size:11px">No missing required skills</span>
-            <?php endif?>
-        </div>
-    </article>
-    <article class="panel detail-panel">
-        <h2>Key benefits (not scored)</h2>
-        <p class="muted">Additional detected skills are useful context but never increase the match score.</p>
-        <div class="pills">
-            <?php foreach(array_slice($match['benefits'],0,16) as $skill):?>
-                <span class="pill benefit"><?=htmlspecialchars($skill)?></span>
-            <?php endforeach?>
-            <?php if(empty($match['benefits'])):?>
-                <span class="muted" style="font-size:11px">No additional benefits recorded</span>
-            <?php endif?>
-        </div>
-    </article>
-    <article class="panel detail-panel">
-        <h2>Experience timeline</h2>
-        <div class="timeline">
+<!-- Dual Side-by-Side Timelines Grid -->
+<section class="cd2-grid" style="margin-top:14px">
+    <!-- Left Column: Dated Career & Employment Timeline -->
+    <article class="cd2-card">
+        <h3>
+            <span><i class="fa-solid fa-timeline" style="color:var(--primary)"></i> Employment & Career Timeline</span>
+            <small class="muted" style="font-weight:normal"><?=count($experience['jobs']??[])?> dated roles</small>
+        </h3>
+        <div class="timeline-track">
             <?php foreach($experience['jobs']??[] as $job):?>
-                <div class="event">
+                <div class="timeline-node">
                     <strong><?=htmlspecialchars(($job['start']??'Unknown').' — '.($job['end']??'Unknown'))?></strong>
-                    <span class="muted"><?=round(($job['months']??0)/12,1)?> years · <?=htmlspecialchars(implode(', ',$job['skills']??[]))?></span>
+                    <p>
+                        <b><?=htmlspecialchars($job['label']??'Employment Record')?></b><br>
+                        <span><?=round(($job['months']??0)/12, 1)?> years tenure</span>
+                        <?php if(!empty($job['skills'])):?>
+                            <br><span style="color:var(--primary);font-weight:600">Skills: <?=htmlspecialchars(implode(', ', $job['skills']))?></span>
+                        <?php endif?>
+                    </p>
                 </div>
             <?php endforeach?>
             <?php if(empty($experience['jobs'])):?>
-                <p class="muted">No reliable dated roles detected.</p>
+                <p class="muted">No reliable dated roles extracted from resume text.</p>
             <?php endif?>
         </div>
     </article>
-    <article class="panel detail-panel">
-        <h2>Skill-wise experience</h2>
-        <?php foreach($experience['skill_months']??[] as $skill=>$months):?>
-            <div class="skill-row">
-                <span><?=htmlspecialchars($skill)?></span>
-                <div class="bar"><i style="width:<?=round($months/$maxSkill*100)?>%"></i></div>
-                <b><?=round($months/12,1)?>y</b>
-            </div>
-        <?php endforeach?>
-        <?php if(empty($experience['skill_months'])):?>
-            <p class="muted">No skill tenure extracted.</p>
-        <?php endif?>
-    </article>
-    <article class="panel detail-panel">
-        <h2>Employment gaps</h2>
-        <?php foreach($experience['gaps']??[] as $gap):?>
-            <div class="event">
-                <strong style="color:#b4233c"><?=$gap['months']?> months gap</strong>
-                <span class="muted"><?=htmlspecialchars($gap['after'].' to '.$gap['before'])?></span>
-            </div>
-        <?php endforeach?>
-        <?php if(empty($experience['gaps'])):?>
-            <p class="muted">No gap of 2+ months detected.</p>
-        <?php endif?>
+
+    <!-- Right Column: Candidate History & Activity Timeline -->
+    <article class="cd2-card">
+        <h3>
+            <span><i class="fa-solid fa-clock-rotate-left" style="color:var(--primary)"></i> Application & Activity History</span>
+            <small class="muted" style="font-weight:normal"><?=count($activityTimeline)?> recorded events</small>
+        </h3>
+        <div class="audit-feed">
+            <?php foreach($activityTimeline as $event):
+                $stateClass = match($event['state']??'neutral') {
+                    'success' => 'state-success',
+                    'danger' => 'state-danger',
+                    'info' => 'state-info',
+                    default => 'state-neutral'
+                };
+                $iconClass = match($event['type']??'') {
+                    'application' => 'fa-file-circle-check',
+                    'wishlist' => 'fa-heart',
+                    'email' => 'fa-envelope',
+                    'interview' => 'fa-calendar-check',
+                    'outcome' => 'fa-user-check',
+                    default => 'fa-list-check'
+                };
+                $timeFormatted = !empty($event['at']) ? date('d M Y, h:i:s A', strtotime($event['at'])) : 'Unknown time';
+            ?>
+                <div class="audit-item <?=$stateClass?>">
+                    <div class="audit-icon-badge">
+                        <i class="fa-solid <?=$iconClass?>"></i>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:baseline">
+                        <strong style="font-size:12px"><?=htmlspecialchars($event['title'])?></strong>
+                        <small class="muted" style="font-size:10px"><?=htmlspecialchars($timeFormatted)?></small>
+                    </div>
+                    <?php if(!empty($event['detail'])):?>
+                        <p style="margin:4px 0 0;font-size:11px;color:var(--muted);line-height:1.5"><?=htmlspecialchars($event['detail'])?></p>
+                    <?php endif?>
+                </div>
+            <?php endforeach?>
+            <?php if(empty($activityTimeline)):?>
+                <p class="muted">No historical audit activity recorded yet.</p>
+            <?php endif?>
+        </div>
     </article>
 </section>
 
 <?php require __DIR__.'/views/partials/footer.php'; ?>
-
