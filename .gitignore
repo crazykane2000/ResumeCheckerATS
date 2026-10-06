@@ -1,0 +1,31 @@
+# Runtime candidate documents and other sensitive uploads
+/uploads/*
+!/uploads/.gitkeep
+!/uploads/.htaccess
+/u157534802_resume1.sql
+
+# Composer-generated dependencies
+/vendor/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+/config/database.local.php
+*.pem
+*.key
+
+# Runtime output
+*.log
+/tmp/
+/cache/
+/data/*.json
+/data/.app-key
+/screenshots/
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini

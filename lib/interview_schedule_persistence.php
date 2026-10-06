@@ -1,0 +1,10 @@
+<?php
+function persistInterviewSchedule(PDO $pdo,array $context): array
+{
+    $window=$context['window'];$invitationData=[];
+    $pdo->prepare("INSERT INTO interview_batches(job_id,profile_id,email_batch_id,created_by,name,availability_start,availability_end,daily_start,daily_end,slot_minutes,buffer_minutes,timezone,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'active')")->execute([$context['job_id'],$context['profile_id'],$context['email_batch_id'],$context['user_id'],$context['name'],$window['start']->format('Y-m-d'),$window['end']->format('Y-m-d'),$window['dailyStart'],$window['dailyEnd'],$window['slotMinutes'],$window['bufferMinutes'],$window['timezone']]);
+    $scheduleBatchId=(int)$pdo->lastInsertId();$insertSlot=$pdo->prepare('INSERT INTO interview_slots(batch_id,starts_at,ends_at) VALUES(?,?,?)');foreach($context['slots'] as $slot)$insertSlot->execute([$scheduleBatchId,$slot['starts_at'],$slot['ends_at']]);
+    $insertRecipient=$pdo->prepare("INSERT INTO email_recipients(batch_id,candidate_id,email,status) VALUES(?,?,?,'pending')");$insertInvitation=$pdo->prepare("INSERT INTO interview_invitations(batch_id,candidate_id,email_recipient_id,token_hash,status,recipient_email,subject,html_snapshot,expires_at) VALUES(?,?,?,?,'draft',?,?,?,?)");
+    foreach($context['recipients'] as $recipient){$insertRecipient->execute([$context['email_batch_id'],$recipient['id'],$recipient['email']]);$emailRecipientId=(int)$pdo->lastInsertId();$token=newInterviewBookingToken();$url=$context['booking_base'].rawurlencode($token['raw']);$html=noncebloxInterviewEmailHtml($recipient['name'],$context['job_title'],$context['window_label'],'Choose an available slot',$window['timezone'],$url);$insertInvitation->execute([$scheduleBatchId,$recipient['id'],$emailRecipientId,$token['hash'],$recipient['email'],$context['subject'],$html,$window['end']->setTime(23,59,59)->format('Y-m-d H:i:s')]);$invitationData[$recipient['id']]=['id'=>(int)$pdo->lastInsertId(),'html'=>$html];}
+    return ['batch_id'=>$scheduleBatchId,'invitations'=>$invitationData];
+}
