@@ -109,56 +109,69 @@ foreach($profiles as $prof){
 
 $defaultProfileId = !empty($profiles) ? (int)($_GET['profile_id'] ?? $profiles[0]['id']) : 0;
 
-$activePage='wishlist';$pageTitle='Shortlists (2-Column) · ResumeIQ';
+$activePage='wishlist';$pageTitle='Shortlists (40/60 Master-Detail) · ResumeIQ';
 $pageStyles='<style>
-.wishlist-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 20px; align-items: start; margin-top: 14px; }
-.master-panel { background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.03); overflow: hidden; position: sticky; top: 80px; }
-.master-head { padding: 16px; background: linear-gradient(135deg,#faf9ff,#f4f0ff); border-bottom: 1px solid var(--line); }
-.master-search { padding: 12px; border-bottom: 1px solid var(--line); background: var(--bg); }
-.profile-list { max-height: calc(100vh - 260px); overflow-y: auto; display: flex; flex-direction: column; }
-.profile-item { padding: 14px 16px; border-bottom: 1px solid var(--line); cursor: pointer; transition: all 0.15s ease; position: relative; }
+.wishlist-layout { display: grid; grid-template-columns: minmax(0, 40fr) minmax(0, 60fr); gap: 24px; align-items: start; margin-top: 18px; }
+.master-panel { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); overflow: hidden; position: sticky; top: 80px; }
+.master-head { padding: 18px 20px; background: linear-gradient(135deg, #f8f7ff 0%, #f1ecff 100%); border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+.master-head strong { font-size: 15px; font-weight: 800; color: #1e1b4b; display: flex; align-items: center; gap: 8px; }
+.master-search { padding: 14px 18px; border-bottom: 1px solid #e5e7eb; background: #fafafa; position: relative; }
+.search-wrapper { position: relative; display: flex; align-items: center; }
+.search-wrapper i { position: absolute; left: 14px; color: #9ca3af; font-size: 13px; }
+.search-wrapper input { width: 100%; padding: 10px 14px 10px 36px; font-size: 13px; border-radius: 10px; border: 1px solid #d1d5db; background: #fff; transition: all 0.2s ease; outline: none; }
+.search-wrapper input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+.profile-list { max-height: calc(100vh - 280px); overflow-y: auto; display: flex; flex-direction: column; }
+.profile-item { padding: 16px 20px; border-bottom: 1px solid #f3f4f6; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); position: relative; background: #fff; }
 .profile-item:last-child { border-bottom: 0; }
-.profile-item:hover { background: #faf9ff; }
-.profile-item.active { background: #f0ebff; border-left: 4px solid var(--primary); }
-.profile-item-title { font-size: 14px; font-weight: 800; color: var(--text); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
-.profile-item-stats { display: flex; gap: 6px; flex-wrap: wrap; }
-.stat-pill { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
-.stat-pill.fav { background: #fff0f3; color: var(--danger); border-color: #ffd8df; }
-.stat-pill.total { background: var(--primary-soft); color: var(--primary); border-color: #d6cbff; }
-.detail-panel { background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.03); padding: 20px; min-height: 500px; }
-.detail-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 16px; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
-.detail-title h2 { margin: 0; font-size: 20px; font-weight: 800; color: var(--text); }
-.detail-title p { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
-.filter-tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid var(--line); padding-bottom: 10px; overflow-x: auto; }
-.tab-btn { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 700; color: var(--muted); background: var(--bg); border: 1px solid var(--line); cursor: pointer; transition: all 0.15s ease; white-space: nowrap; }
-.tab-btn:hover, .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
-.candidate-table { width: 100%; border-collapse: collapse; }
-.candidate-row { display: grid; grid-template-columns: 28px minmax(0, 1.3fr) 90px 110px auto; gap: 12px; align-items: center; padding: 14px 10px; border-bottom: 1px solid var(--line); border-radius: 8px; transition: background 0.15s ease; }
-.candidate-row:hover { background: #faf9ff; }
-.candidate-row:last-child { border: 0; }
-.candidate-row strong { font-size: 13px; }
-.candidate-row small { color: var(--muted); display: block; font-size: 11px; }
-.rank-badge { color: var(--primary); font-size: 11px; font-weight: 800; background: var(--primary-soft); padding: 2px 6px; border-radius: 4px; text-align: center; }
-.status-pill { font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 12px; text-transform: capitalize; display: inline-block; text-align: center; }
-.status-pill.selected { background: var(--green-soft); color: var(--green); }
-.status-pill.wishlist { background: var(--primary-soft); color: var(--primary); }
-.status-pill.blacklisted { background: #fff1f3; color: var(--danger); }
-.status-pill.invited { background: #fff5e7; color: #8c610d; }
-.actions-cell { display: flex; gap: 6px; justify-content: flex-end; }
-.mini-btn { width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer; display: grid; place-items: center; font-size: 12px; color: var(--text); transition: all 0.15s ease; }
-.mini-btn:hover { background: var(--bg); border-color: var(--muted); }
-.mini-btn.danger:hover { color: var(--danger); background: #fff1f3; border-color: #ffd8df; }
-.add-toolbar { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
-.add-toolbar form { display: flex; gap: 10px; flex: 1; }
-.empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
-.notice { padding: 12px 16px; border-radius: 8px; margin: 10px 0; font-weight: 600; }
-.ok { background: var(--green-soft); color: var(--green); }
-.err { background: #fff1f3; color: var(--danger); }
+.profile-item:hover { background: #fdfcff; transform: translateX(2px); }
+.profile-item.active { background: linear-gradient(90deg, #f5f3ff 0%, #ffffff 100%); border-left: 4px solid #6366f1; }
+.profile-item-title { font-size: 14px; font-weight: 800; color: #1f2937; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+.profile-item.active .profile-item-title { color: #4338ca; }
+.profile-item-stats { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.stat-pill { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 12px; background: #f3f4f6; color: #4b5563; border: 1px solid #e5e7eb; display: inline-flex; align-items: center; gap: 4px; }
+.stat-pill.fav { background: #fef2f2; color: #ef4444; border-color: #fecaca; }
+.stat-pill.total { background: #eeefee; color: #4338ca; border-color: #c7d2fe; }
+.stat-pill.applicants { background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
 
-@media (max-width: 900px) {
+.detail-panel { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); padding: 24px; min-height: 520px; }
+.detail-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e7eb; padding-bottom: 18px; margin-bottom: 20px; flex-wrap: wrap; gap: 14px; }
+.detail-title h2 { margin: 0; font-size: 22px; font-weight: 800; color: #111827; letter-spacing: -0.02em; }
+.detail-title p { margin: 4px 0 0; font-size: 13px; color: #6b7280; display: flex; align-items: center; gap: 6px; }
+
+.filter-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid #f3f4f6; padding-bottom: 12px; overflow-x: auto; }
+.tab-btn { padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 700; color: #6b7280; background: #f9fafb; border: 1px solid #e5e7eb; cursor: pointer; transition: all 0.2s ease; white-space: nowrap; }
+.tab-btn:hover { background: #f3f4f6; color: #374151; }
+.tab-btn.active { background: #4338ca; color: #ffffff; border-color: #4338ca; box-shadow: 0 2px 8px rgba(67,56,202,0.25); }
+
+.candidate-table { width: 100%; border-collapse: collapse; display: flex; flex-direction: column; gap: 10px; }
+.candidate-row { display: grid; grid-template-columns: 32px minmax(0, 1.4fr) 85px 110px auto; gap: 14px; align-items: center; padding: 14px 16px; background: #ffffff; border: 1px solid #f3f4f6; border-radius: 12px; transition: all 0.2s ease; }
+.candidate-row:hover { border-color: #cbd5e1; box-shadow: 0 4px 12px rgba(0,0,0,0.03); transform: translateY(-1px); }
+.candidate-row strong { font-size: 14px; color: #1f2937; }
+.candidate-row small { color: #6b7280; display: block; font-size: 12px; margin-top: 2px; }
+.rank-badge { color: #4338ca; font-size: 11px; font-weight: 800; background: #eeefee; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; }
+.match-score-badge { font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 8px; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; text-align: center; }
+.status-pill { font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 14px; text-transform: capitalize; display: inline-block; text-align: center; }
+.status-pill.selected { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+.status-pill.wishlist { background: #eeefee; color: #4338ca; border: 1px solid #c7d2fe; }
+.status-pill.blacklisted { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+.status-pill.invited { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+
+.actions-cell { display: flex; gap: 6px; justify-content: flex-end; }
+.mini-btn { width: 34px; height: 34px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; cursor: pointer; display: grid; place-items: center; font-size: 13px; color: #374151; transition: all 0.2s ease; }
+.mini-btn:hover { background: #f9fafb; border-color: #9ca3af; transform: scale(1.05); }
+.mini-btn.danger:hover { color: #ef4444; background: #fef2f2; border-color: #fecaca; }
+
+.add-toolbar { margin-top: 22px; padding: 16px; background: #fafafa; border: 1px solid #e5e7eb; border-radius: 12px; display: flex; gap: 12px; align-items: center; }
+.add-toolbar form { display: flex; gap: 10px; flex: 1; }
+.empty-state { text-align: center; padding: 50px 20px; color: #9ca3af; }
+.notice { padding: 14px 18px; border-radius: 10px; margin: 12px 0; font-weight: 600; font-size: 13px; }
+.ok { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+.err { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+
+@media (max-width: 960px) {
   .wishlist-layout { grid-template-columns: 1fr; }
   .master-panel { position: static; max-height: none; }
-  .candidate-row { grid-template-columns: 1fr; gap: 8px; }
+  .candidate-row { grid-template-columns: 1fr; gap: 10px; }
   .actions-cell { justify-content: flex-start; }
 }
 </style>';
@@ -168,36 +181,41 @@ require __DIR__.'/views/partials/header.php';
 
 <section class="page-head" style="padding:20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px">
   <div>
-    <div class="kicker"><i class="fa-solid fa-list-check"></i> Master-Detail Shortlist Workspace</div>
-    <h1 style="margin:4px 0 0;font-size:24px">Wishlist & Profiles <span class="badge" style="font-size:11px;vertical-align:middle;background:var(--primary-soft);color:var(--primary)">2-Column Demo</span></h1>
-    <p class="muted" style="margin:4px 0 0;font-size:13px">Select any job profile on the left panel to inspect candidates, review scores, and dispatch invitations.</p>
+    <div class="kicker" style="color:#6366f1;font-weight:800;font-size:12px;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:4px">
+      <i class="fa-solid fa-layer-group"></i> 40 / 60 Master-Detail Workspace
+    </div>
+    <h1 style="margin:0;font-size:26px;font-weight:900;color:#111827">Wishlist & Job Shortlists</h1>
+    <p class="muted" style="margin:4px 0 0;font-size:13px;color:#6b7280">Manage job profiles on the left 40% panel and review shortlisted candidates on the right 60% panel.</p>
   </div>
-  <form method="post" style="display:flex;gap:8px">
+  <form method="post" style="display:flex;gap:10px">
     <input type="hidden" name="csrf" value="<?=csrfToken()?>">
     <input type="hidden" name="action" value="create_profile">
-    <input class="control" name="profile_name" placeholder="New job profile title..." required style="width:220px">
-    <button class="btn btn-primary"><i class="fa-solid fa-plus"></i> Create Profile</button>
+    <input class="control" name="profile_name" placeholder="New job profile title..." required style="width:220px;border-radius:10px;padding:9px 14px;font-size:13px">
+    <button class="btn btn-primary" style="border-radius:10px;padding:9px 18px;font-weight:700;font-size:13px"><i class="fa-solid fa-plus"></i> Create Profile</button>
   </form>
 </section>
 
-<?php if($message):?><div class="notice ok"><?=htmlspecialchars($message)?></div><?php endif?>
-<?php if($error):?><div class="notice err"><?=htmlspecialchars($error)?></div><?php endif?>
+<?php if($message):?><div class="notice ok"><i class="fa-solid fa-circle-check"></i> <?=htmlspecialchars($message)?></div><?php endif?>
+<?php if($error):?><div class="notice err"><i class="fa-solid fa-triangle-exclamation"></i> <?=htmlspecialchars($error)?></div><?php endif?>
 
 <div class="wishlist-layout">
-  <!-- LEFT COLUMN: MASTER JOB PROFILES PANEL -->
+  <!-- LEFT COLUMN: 40% MASTER JOB PROFILES PANEL -->
   <aside class="master-panel">
-    <div class="master-head" style="display:flex;justify-content:space-between;align-items:center">
-      <strong style="font-size:14px;color:var(--text)"><i class="fa-solid fa-briefcase" style="color:var(--primary)"></i> Job Profiles</strong>
-      <span class="badge" style="font-size:11px"><?=count($profiles)?> Roles</span>
+    <div class="master-head">
+      <strong><i class="fa-solid fa-briefcase" style="color:#6366f1"></i> Job Profiles</strong>
+      <span class="badge" style="font-size:11px;background:#e0e7ff;color:#4338ca;font-weight:800;padding:3px 9px;border-radius:10px"><?=count($profiles)?> Roles</span>
     </div>
     
     <div class="master-search">
-      <input type="text" id="profileSearchInput" class="control" placeholder="Search profiles…" style="font-size:12px">
+      <div class="search-wrapper">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="text" id="profileSearchInput" placeholder="Search job profiles…">
+      </div>
     </div>
 
     <div class="profile-list" id="profileListContainer">
       <?php if(empty($profiles)): ?>
-        <div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">No profiles found.</div>
+        <div style="padding:24px;text-align:center;color:#9ca3af;font-size:13px">No profiles created yet.</div>
       <?php endif; ?>
 
       <?php foreach($profiles as $p): 
@@ -211,19 +229,19 @@ require __DIR__.'/views/partials/header.php';
       <div class="profile-item <?=$isActive?'active':''?>" data-profile-id="<?=$pId?>" data-name="<?=htmlspecialchars(mb_strtolower($p['name']))?>" onclick="selectProfile(<?=$pId?>)">
         <div class="profile-item-title">
           <span><?=htmlspecialchars(trim($p['name']))?></span>
-          <i class="fa-solid fa-chevron-right" style="font-size:11px;color:var(--muted)"></i>
+          <i class="fa-solid fa-chevron-right" style="font-size:11px;color:#9ca3af"></i>
         </div>
         <div class="profile-item-stats">
-          <span class="stat-pill total" title="Shortlisted Candidates"><?=$totalItems?> Shortlisted</span>
+          <span class="stat-pill total" title="Shortlisted Candidates"><i class="fa-solid fa-list-check"></i> <?=$totalItems?> Shortlisted</span>
           <span class="stat-pill fav" title="Liked & Selected Candidates"><i class="fa-solid fa-heart"></i> <?=$favCount?> Fav</span>
-          <span class="stat-pill" title="Eligible Applicants"><?=$eligibleCount?> Applicants</span>
+          <span class="stat-pill applicants" title="Eligible Applicants"><i class="fa-solid fa-users"></i> <?=$eligibleCount?> Applicants</span>
         </div>
       </div>
       <?php endforeach; ?>
     </div>
   </aside>
 
-  <!-- RIGHT COLUMN: SELECTED PROFILE DETAIL PANEL -->
+  <!-- RIGHT COLUMN: 60% SELECTED PROFILE DETAIL PANEL -->
   <main class="detail-panel">
     <?php foreach($profiles as $p): 
       $pId = (int)$p['id'];
@@ -239,11 +257,11 @@ require __DIR__.'/views/partials/header.php';
       <div class="detail-head">
         <div class="detail-title">
           <h2><?=htmlspecialchars(trim($p['name']))?></h2>
-          <p><?=count($items)?> shortlisted candidates · <?=count($eligible)?> total eligible applicants</p>
+          <p><i class="fa-solid fa-user-group" style="color:#6366f1"></i> <?=count($items)?> shortlisted candidates · <?=count($eligible)?> eligible applicants</p>
         </div>
         <div>
           <?php if($jobTableId > 0): ?>
-          <a href="interview_invite.php?job_id=<?=$jobTableId?>" class="btn btn-primary" style="height:38px">
+          <a href="interview_invite.php?job_id=<?=$jobTableId?>" class="btn btn-primary" style="height:40px;border-radius:10px;padding:0 18px;font-weight:700">
             <i class="fa-solid fa-paper-plane"></i> Send Invitations
           </a>
           <?php endif; ?>
@@ -262,9 +280,9 @@ require __DIR__.'/views/partials/header.php';
       <!-- CANDIDATE LIST TABLE -->
       <?php if(empty($items)): ?>
       <div class="empty-state">
-        <i class="fa-solid fa-user-plus" style="font-size:32px;color:var(--muted);margin-bottom:12px;display:block"></i>
-        <h3>No candidates in shortlist</h3>
-        <p style="font-size:12px">Use the quick dropdown below to add eligible applicants to this job profile shortlist.</p>
+        <i class="fa-solid fa-folder-open" style="font-size:36px;color:#cbd5e1;margin-bottom:12px;display:block"></i>
+        <h3 style="margin:0 0 6px;color:#334155;font-size:16px">No candidates shortlisted yet</h3>
+        <p style="font-size:13px;margin:0">Select an applicant from the dropdown toolbar below to add them to this profile.</p>
       </div>
       <?php else: ?>
       <div class="candidate-table" id="table-<?=$pId?>">
@@ -274,20 +292,20 @@ require __DIR__.'/views/partials/header.php';
           $isInvited = isset($locks[$candidate['id']]);
           $filterCategory = $isInvited ? 'invited' : $status;
         ?>
-        <div class="candidate-row cand-item" data-disposition="<?=$filterCategory?>" style="<?=$isInvited?'opacity:0.65;':''?>">
+        <div class="candidate-row cand-item" data-disposition="<?=$filterCategory?>" style="<?=$isInvited?'opacity:0.75;':''?>">
           <span class="rank-badge">#<?=$index+1?></span>
           <span>
             <strong>
-              <a href="candidate_detail.php?id=<?=urlencode($candidate['id'])?>" target="_blank" style="color:var(--text);text-decoration:none">
+              <a href="candidate_detail.php?id=<?=urlencode($candidate['id'])?>" target="_blank" style="color:#111827;text-decoration:none">
                 <?=htmlspecialchars($person['name'])?>
               </a>
-              <a href="candidate_detail.php?id=<?=urlencode($candidate['id'])?>" target="_blank" title="Open candidate profile in new tab" style="color:var(--primary);margin-left:4px">
+              <a href="candidate_detail.php?id=<?=urlencode($candidate['id'])?>" target="_blank" title="Open candidate profile in new tab" style="color:#6366f1;margin-left:4px">
                 <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px"></i>
               </a>
             </strong>
             <small><?=htmlspecialchars($candidate['email']??'No email')?> · <?=htmlspecialchars($person['role'])?></small>
           </span>
-          <span class="badge" style="font-weight:800;font-size:11px"><?=$candidate['job_match']['analyzed']?$candidate['score'].'%':'—'?></span>
+          <span class="match-score-badge"><?=$candidate['job_match']['analyzed']?$candidate['score'].'%':'—'?></span>
           <div>
             <?php if($isInvited): ?>
               <span class="status-pill invited"><i class="fa-solid fa-envelope"></i> Invited</span>
@@ -297,13 +315,13 @@ require __DIR__.'/views/partials/header.php';
           </div>
           <div class="actions-cell">
             <button class="mini-btn" type="button" onclick="statusUpdate(<?=$pId?>,'<?=htmlspecialchars($candidate['id'])?>','selected')" title="Mark Selected">
-              <i class="fa-solid fa-check" style="color:var(--green)"></i>
+              <i class="fa-solid fa-check" style="color:#16a34a"></i>
             </button>
             <button class="mini-btn" type="button" onclick="statusUpdate(<?=$pId?>,'<?=htmlspecialchars($candidate['id'])?>','wishlist')" title="Keep Wishlist">
-              <i class="fa-solid fa-heart" style="color:var(--primary)"></i>
+              <i class="fa-solid fa-heart" style="color:#6366f1"></i>
             </button>
             <button class="mini-btn" type="button" onclick="statusUpdate(<?=$pId?>,'<?=htmlspecialchars($candidate['id'])?>','blacklisted')" title="Blacklist">
-              <i class="fa-solid fa-ban" style="color:var(--danger)"></i>
+              <i class="fa-solid fa-ban" style="color:#dc2626"></i>
             </button>
             <?php if($isOwner): ?>
             <button class="mini-btn danger" type="button" onclick="deleteCandidate(<?=$pId?>,'<?=htmlspecialchars($candidate['id'])?>','<?=htmlspecialchars(addslashes($person['name']))?>')" title="Delete Candidate">
@@ -322,7 +340,7 @@ require __DIR__.'/views/partials/header.php';
           <input type="hidden" name="csrf" value="<?=csrfToken()?>">
           <input type="hidden" name="action" value="add">
           <input type="hidden" name="profile_id" value="<?=$pId?>">
-          <select class="control" name="candidate_id" required style="font-size:12px">
+          <select class="control" name="candidate_id" required style="font-size:13px;border-radius:10px;padding:9px 12px;border:1px solid #d1d5db;background:#fff">
             <option value="">Add applicant to <?=htmlspecialchars(trim($p['name']))?> shortlist…</option>
             <?php foreach($eligible as $cand): 
               if(isset($statuses[$cand['id']])) continue;
@@ -331,7 +349,7 @@ require __DIR__.'/views/partials/header.php';
             <option value="<?=htmlspecialchars($cand['id'])?>"><?=htmlspecialchars($pInfo['name'])?> · <?=$cand['job_match']['analyzed']?$cand['score'].'%':'Needs analysis'?></option>
             <?php endforeach; ?>
           </select>
-          <button class="btn btn-primary" style="font-size:12px;white-space:nowrap"><i class="fa-solid fa-plus"></i> Add to shortlist</button>
+          <button class="btn btn-primary" style="font-size:13px;white-space:nowrap;border-radius:10px;padding:9px 16px"><i class="fa-solid fa-plus"></i> Add to shortlist</button>
         </form>
       </div>
     </section>
