@@ -15,13 +15,22 @@ function saveWorkspaceData(string $file, array $data): void {
 }
 function analyzeExperienceTimeline(string $text, array $skills): array {
     $months = ['jan'=>1,'feb'=>2,'mar'=>3,'apr'=>4,'may'=>5,'jun'=>6,'jul'=>7,'aug'=>8,'sep'=>9,'oct'=>10,'nov'=>11,'dec'=>12];
-    $pattern = '/\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s*[\/.\- ]\s*(20\d{2}|19\d{2})\s*(?:-|–|—|to)\s*(?:(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s*[\/.\- ]\s*(20\d{2}|19\d{2})|Present|Current|Ongoing)/i';
+    $pattern = '/\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?|0?[1-9]|1[0-2])\s*[\/.\- ]\s*(20\d{2}|19\d{2})\s*(?:-|–|—|to)\s*(?:(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?|0?[1-9]|1[0-2])\s*[\/.\- ]\s*(20\d{2}|19\d{2})|Present|Current|Ongoing|Till Date)/i';
     preg_match_all($pattern, $text, $matches, PREG_OFFSET_CAPTURE);
     $jobs=[]; $now=new DateTimeImmutable('first day of this month');
     foreach ($matches[0] as $i=>$full) {
-        $sm=$months[strtolower(substr($matches[1][$i][0],0,3))]??1; $sy=(int)$matches[2][$i][0];
-        $start=(new DateTimeImmutable())->setDate($sy,$sm,1)->setTime(0,0);
-        if (!empty($matches[4][$i][0])) { $em=$months[strtolower(substr($matches[3][$i][0],0,3))]??1; $ey=(int)$matches[4][$i][0]; $end=(new DateTimeImmutable())->setDate($ey,$em,1)->modify('last day of this month')->setTime(0,0); } else $end=$now;
+        $m1Str = $matches[1][$i][0];
+        $sm = is_numeric($m1Str) ? (int)$m1Str : ($months[strtolower(substr($m1Str,0,3))]??1);
+        $sy = (int)$matches[2][$i][0];
+        $start = (new DateTimeImmutable())->setDate($sy, max(1, min(12, $sm)), 1)->setTime(0,0);
+        if (!empty($matches[4][$i][0])) {
+            $m2Str = $matches[3][$i][0];
+            $em = is_numeric($m2Str) ? (int)$m2Str : ($months[strtolower(substr($m2Str,0,3))]??1);
+            $ey = (int)$matches[4][$i][0];
+            $end = (new DateTimeImmutable())->setDate($ey, max(1, min(12, $em)), 1)->modify('last day of this month')->setTime(0,0);
+        } else {
+            $end = $now;
+        }
         if ($end < $start) continue;
         $next=$matches[0][$i+1][1]??min(strlen($text),$full[1]+900); $block=substr($text,$full[1],max(0,$next-$full[1]));
         $duration=max(1,($end->format('Y')-$start->format('Y'))*12+(int)$end->format('n')-(int)$start->format('n')+1);
@@ -40,11 +49,38 @@ function analyzeExperienceTimeline(string $text, array $skills): array {
 }
 function saveCandidateRecord(array $result, ?int $jobId = null): void {
     $items=workspaceData('candidates.json',[]);
-    $name='Unknown candidate'; foreach(preg_split('/\R/',trim($result['extracted_text'])) as $line){$line=trim($line);if(strlen($line)>2){$name=mb_substr($line,0,80);break;}}
-    $record=['id'=>'CAN-'.substr(md5($result['stored_filename']),0,8),'job_id'=>$jobId,'name'=>$name,'role'=>'Candidate','email'=>$result['email'],'phone'=>$result['phone'],'score'=>$result['match_score'],'skills'=>$result['detected_skills'],'stage'=>'Applied','source'=>'direct_upload','created_at'=>$result['created_at'],'file'=>$result['stored_filename'],'experience'=>$result['experience'],'analysis'=>['matched_keywords'=>$result['matched_keywords']??[],'missing_keywords'=>$result['missing_keywords']??[],'jd_keywords'=>$result['jd_keywords']??[]]];
+    $name = !empty($result['name']) && $result['name'] !== 'Unknown candidate' ? $result['name'] : 'Unknown candidate';
+    if ($name === 'Unknown candidate') {
+        foreach(preg_split('/\R/',trim($result['extracted_text'])) as $line){
+            $line=trim($line);
+            if(strlen($line)>2 && !preg_match('/@|http|\+?\d{8,}/',$line)){
+                $name=mb_substr($line,0,60);
+                break;
+            }
+        }
+    }
+    $role = !empty($result['role']) ? $result['role'] : 'Candidate';
+    $cCode = !empty($result['country_code']) ? strtoupper(trim($result['country_code'])) : '';
+    $cName = !empty($result['country_name']) ? trim($result['country_name']) : '';
+    $email = trim((string)($result['email'] ?? ''));
+
+    // Check for existing candidate application by email to avoid duplicate rows
+    $existingId = null;
+    if ($email !== '') {
+        try {
+            $checkStmt = db()->prepare("SELECT id FROM candidates WHERE email = ? AND (job_id = ? OR (job_id IS NULL AND ? IS NULL)) ORDER BY created_at DESC LIMIT 1");
+            $checkStmt->execute([$email, $jobId, $jobId]);
+            $existingId = $checkStmt->fetchColumn();
+        } catch (Throwable $e) {}
+    }
+
+    $id = $existingId ?: ('CAN-'.substr(md5($result['stored_filename']), 0, 8));
+
+    $record=['id'=>$id,'job_id'=>$jobId,'name'=>$name,'role'=>$role,'email'=>$result['email'],'phone'=>$result['phone'],'country_code'=>$cCode,'country_name'=>$cName,'score'=>$result['match_score'],'skills'=>$result['detected_skills'],'stage'=>'Applied','source'=>'direct_upload','created_at'=>$result['created_at'],'file'=>$result['stored_filename'],'experience'=>$result['experience'],'analysis'=>['matched_keywords'=>$result['matched_keywords']??[],'missing_keywords'=>$result['missing_keywords']??[],'jd_keywords'=>$result['jd_keywords']??[]]];
     $items=array_values(array_filter($items,fn($item)=>($item['id']??'')!==$record['id'])); $items[]=$record; saveWorkspaceData('candidates.json',$items);
-    $sql='INSERT INTO candidates(id,job_id,name,role_title,email,phone,score,stage,source_name,skills_json,experience_json,analysis_json,stored_file,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE job_id=VALUES(job_id),name=VALUES(name),role_title=VALUES(role_title),email=VALUES(email),phone=VALUES(phone),score=VALUES(score),skills_json=VALUES(skills_json),experience_json=VALUES(experience_json),analysis_json=VALUES(analysis_json),stored_file=VALUES(stored_file)';
-    db()->prepare($sql)->execute([$record['id'],$record['job_id'],$record['name'],$record['role'],$record['email'],$record['phone'],$record['score'],$record['stage'],$record['source'],json_encode($record['skills']),json_encode($record['experience']),json_encode($record['analysis']),$record['file'],$record['created_at']]);
+    
+    $sql='INSERT INTO candidates(id,job_id,name,role_title,email,phone,country_code,country_name,score,stage,source_name,skills_json,experience_json,analysis_json,stored_file,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE job_id=VALUES(job_id),name=VALUES(name),role_title=VALUES(role_title),email=VALUES(email),phone=VALUES(phone),country_code=VALUES(country_code),country_name=VALUES(country_name),score=VALUES(score),skills_json=VALUES(skills_json),experience_json=VALUES(experience_json),analysis_json=VALUES(analysis_json),stored_file=VALUES(stored_file)';
+    db()->prepare($sql)->execute([$record['id'],$record['job_id'],$record['name'],$record['role'],$record['email'],$record['phone'],$record['country_code'],$record['country_name'],$record['score'],$record['stage'],$record['source'],json_encode($record['skills']),json_encode($record['experience']),json_encode($record['analysis']),$record['file'],$record['created_at']]);
 }
 function countryCodeFromName(?string $code, ?string $name): string {
     if(trim((string)$code)!=='')return strtoupper(trim((string)$code));

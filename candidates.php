@@ -85,6 +85,7 @@ $favourites=[];
 $inviteLocks=[];
 $skills=[];
 $sources=[];
+$countries=[];
 $oldCount=0;
 $analyzedCount=0;
 $drawerData=[];
@@ -112,7 +113,12 @@ foreach($items as $candidate){
     foreach($candidate['skills']??[] as $skill)if(trim((string)$skill)!=='')$skills[mb_strtolower(trim((string)$skill))]=trim((string)$skill);
     if(trim((string)($candidate['source']??''))!=='')$sources[(string)$candidate['source']]=(string)$candidate['source'];
 
-    $cand=['id'=>$candidate['id'],'job_id'=>$cJobId,'job_title'=>trim((string)($candidate['job_title']??$candName['role']??'General')),'name'=>$candName['name'],'created_at'=>(string)($candidate['created_at']??''),'role'=>$candName['role'],'email'=>$candidate['email'],'phone'=>$candidate['phone'],'country_name'=>$candidate['country_name'],'source'=>$candidate['source']??'Unknown','stage'=>$candidate['stage']??'Applied','skills'=>$candidate['skills']??[],'experience'=>$exp,'age'=>candidateApplicationAge($candidate),'old'=>$old,'job_score'=>$match['score'],'analyzed'=>(bool)($match['analyzed']??false),'matched'=>array_column(array_filter($match['mapping']??[],fn($item)=>($item['status']??'')==='experience_backed'),'requirement'),'review'=>array_column(array_filter($match['mapping']??[],fn($item)=>in_array($item['status']??'',['skills_only','related_review'],true)),'requirement'),'missing'=>array_column(array_filter($match['mapping']??[],fn($item)=>($item['status']??'')==='not_found'),'requirement'),'benefits'=>array_slice($match['preferred_matched']??[],0,16),'breakdown'=>$match['breakdown']??[],'maximum'=>$match['maximum']??[]];
+    $cCode=strtoupper(trim((string)($candidate['country_code']??'')));
+    $cName=trim((string)($candidate['country_name']??''));
+    if($cCode!=='')$countries[$cCode]=$cName?:$cCode;
+    elseif($cName!=='')$countries[$cName]=$cName;
+
+    $cand=['id'=>$candidate['id'],'job_id'=>$cJobId,'job_title'=>trim((string)($candidate['job_title']??$candName['role']??'General')),'name'=>$candName['name'],'created_at'=>(string)($candidate['created_at']??''),'role'=>$candName['role'],'email'=>$candidate['email'],'phone'=>$candidate['phone'],'country_code'=>$cCode,'country_name'=>$cName,'source'=>$candidate['source']??'Unknown','stage'=>$candidate['stage']??'Applied','skills'=>$candidate['skills']??[],'experience'=>$exp,'age'=>candidateApplicationAge($candidate),'old'=>$old,'job_score'=>$match['score'],'analyzed'=>(bool)($match['analyzed']??false),'matched'=>array_column(array_filter($match['mapping']??[],fn($item)=>($item['status']??'')==='experience_backed'),'requirement'),'review'=>array_column(array_filter($match['mapping']??[],fn($item)=>in_array($item['status']??'',['skills_only','related_review'],true)),'requirement'),'missing'=>array_column(array_filter($match['mapping']??[],fn($item)=>($item['status']??'')==='not_found'),'requirement'),'benefits'=>array_slice($match['preferred_matched']??[],0,16),'breakdown'=>$match['breakdown']??[],'maximum'=>$match['maximum']??[]];
     $candidates[]=$cand;
 
     $drawerData[$candidate['id']]=['name'=>$candName['name'],'role'=>$candName['role'],'job'=>$cand['job_title'],'email'=>$candidate['email']?:'Not available','phone'=>$candidate['phone']?:'Not available','country'=>$candidate['country_name']?:'Not available','source'=>$candidate['source']??'Unknown','stage'=>$candidate['stage']??'Applied','created_at'=>$candidate['created_at']??'','age'=>candidateApplicationAge($candidate),'old'=>$old,'score'=>$match['score'],'analyzed'=>(bool)($match['analyzed']??false),'breakdown'=>$match['breakdown']??[],'maximum'=>$match['maximum']??[],'matched'=>$cand['matched'],'review'=>$cand['review'],'missing'=>$cand['missing'],'benefits'=>$cand['benefits'],'months'=>(int)($exp['total_months']??0),'confidence'=>$exp['confidence']??'Not available','jobs'=>$exp['jobs']??[],'gaps'=>$exp['gaps']??[],'skill_months'=>$exp['skill_months']??[],'detail_url'=>'candidate_detail.php?id='.urlencode($candidate['id']),'resume_url'=>'resume_file.php?id='.urlencode($candidate['id']),'text_url'=>'candidate_drawer_api.php?id='.urlencode($candidate['id'])];
@@ -132,6 +138,7 @@ if($activeJob && !empty($activeJob['profile_id'])){
 
 natcasesort($skills);
 natcasesort($sources);
+ksort($countries);
 
 $totalApplicants=count($items);
 $totalWishlist=array_sum(array_map(fn($job)=>(int)$job['wishlist_count'],$jobs));
@@ -242,6 +249,15 @@ require __DIR__.'/views/partials/header.php';
                 </select>
             </div>
             <div class="filter-field">
+                <label for="filterCountry">Country</label>
+                <select class="control" id="filterCountry">
+                    <option value="">All countries</option>
+                    <?php foreach($countries as $cCode=>$cLabel):?>
+                        <option value="<?=htmlspecialchars($cCode)?>"><?=htmlspecialchars($cLabel)?> (<?=htmlspecialchars($cCode)?>)</option>
+                    <?php endforeach?>
+                </select>
+            </div>
+            <div class="filter-field">
                 <label for="filterScore">Minimum score</label>
                 <select class="control" id="filterScore">
                     <option value="0">Any score</option>
@@ -318,13 +334,13 @@ require __DIR__.'/views/partials/header.php';
                                 $months=(int)($candidate['experience']['total_months']??0);
                                 $createdTime=$candidate['created_at']!==''?strtotime($candidate['created_at']):false;
                             ?>
-                                <tr class="<?=$i<5?'top-five':'reserve'?>" tabindex="0" data-candidate="<?=htmlspecialchars($candidate['id'])?>" data-find="<?=htmlspecialchars(mb_strtolower($candidate['name'].' '.$candidate['role'].' '.implode(' ',$candidate['skills'])))?>" data-skills="<?=htmlspecialchars('|'.mb_strtolower(implode('|',$candidate['skills'])).'|')?>" data-created="<?=htmlspecialchars($candidate['created_at'],ENT_QUOTES,'UTF-8')?>" data-months="<?=$months?>" data-source="<?=htmlspecialchars($candidate['source'])?>" data-score="<?=$candidate['analyzed']?(int)$candidate['job_score']:-1?>" data-analyzed="<?=$candidate['analyzed']?'1':'0'?>" data-stage="<?=htmlspecialchars($candidate['stage'])?>" data-old="<?=$candidate['old']?'1':'0'?>" data-name="<?=htmlspecialchars(mb_strtolower($candidate['name']))?>">
+                                <tr class="<?=$i<5?'top-five':'reserve'?>" tabindex="0" data-candidate="<?=htmlspecialchars($candidate['id'])?>" data-find="<?=htmlspecialchars(mb_strtolower($candidate['name'].' '.$candidate['role'].' '.implode(' ',$candidate['skills'])))?>" data-skills="<?=htmlspecialchars('|'.mb_strtolower(implode('|',$candidate['skills'])).'|')?>" data-created="<?=htmlspecialchars($candidate['created_at'],ENT_QUOTES,'UTF-8')?>" data-months="<?=$months?>" data-source="<?=htmlspecialchars($candidate['source'])?>" data-country-code="<?=htmlspecialchars(strtoupper($candidate['country_code']??''))?>" data-country-name="<?=htmlspecialchars(mb_strtolower($candidate['country_name']??''))?>" data-score="<?=$candidate['analyzed']?(int)$candidate['job_score']:-1?>" data-analyzed="<?=$candidate['analyzed']?'1':'0'?>" data-stage="<?=htmlspecialchars($candidate['stage'])?>" data-old="<?=$candidate['old']?'1':'0'?>" data-name="<?=htmlspecialchars(mb_strtolower($candidate['name']))?>">
                                     <td>
                                         <input class="select-box" type="checkbox" name="candidate_ids[]" value="<?=htmlspecialchars($candidate['id'])?>" <?=($favourites[$candidate['id']]??'')==='wishlist'?'checked':''?> <?=$locked?'disabled':''?> onclick="event.stopPropagation()">
                                     </td>
                                     <td class="candidate-name">
                                         <strong><?=htmlspecialchars($candidate['name'])?> <a href="candidate_detail.php?id=<?=urlencode($candidate['id'])?>" target="_blank" onclick="event.stopPropagation()" title="Open full profile details in candidate_detail.php" style="color:var(--primary);text-decoration:none;margin-left:4px"><i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px"></i></a></strong>
-                                        <small><?=htmlspecialchars($candidate['email']?:'No email')?></small>
+                                        <small><?=htmlspecialchars($candidate['email']?:'No email')?><?php if(!empty($candidate['country_name'])):?> · 📍 <?=htmlspecialchars($candidate['country_name'])?><?php endif?></small>
                                     </td>
                                     <td><?=htmlspecialchars($candidate['job_title'])?></td>
                                     <td><strong><?=htmlspecialchars($candidate['stage'])?></strong></td>
@@ -509,6 +525,7 @@ filterSearch=document.getElementById('filterSearch'),
 filterSkill=document.getElementById('filterSkill'),
 filterExperience=document.getElementById('filterExperience'),
 filterSource=document.getElementById('filterSource'),
+filterCountry=document.getElementById('filterCountry'),
 filterScore=document.getElementById('filterScore'),
 filterAge=document.getElementById('filterAge'),
 filterStage=document.getElementById('filterStage'),
@@ -516,17 +533,32 @@ filterSort=document.getElementById('filterSort'),
 filterCount=document.getElementById('filterCount'),
 tableBody=document.querySelector('.candidate-table tbody');
 
-filterSearch.value=new URLSearchParams(location.search).get('q')||'';
+const urlParams=new URLSearchParams(location.search);
+if(urlParams.get('q')) filterSearch.value=urlParams.get('q');
+if(urlParams.get('country') && filterCountry){
+    const cParam=urlParams.get('country').trim().toLowerCase();
+    const opt=[...filterCountry.options].find(o=>o.value.toLowerCase()===cParam || o.text.toLowerCase().includes(cParam));
+    if(opt){
+        filterCountry.value=opt.value;
+    }else{
+        const customOpt=new Option(urlParams.get('country'), urlParams.get('country'), true, true);
+        filterCountry.add(customOpt);
+        filterCountry.value=urlParams.get('country');
+    }
+}
 
 function filterCandidates(){
     let shown=0;
     filterRows.forEach(row=>{
         const scoreOk=filterScore.value==='0'||(filterScore.value==='analyzed'?row.dataset.analyzed==='1':row.dataset.analyzed==='1'&&+row.dataset.score>=+filterScore.value);
         const ageOk=!filterAge.value||(filterAge.value==='old'?row.dataset.old==='1':row.dataset.old==='0');
+        const cVal=filterCountry?filterCountry.value.trim().toLowerCase():'';
+        const countryOk=!cVal||(row.dataset.countryCode&&row.dataset.countryCode.toLowerCase()===cVal)||(row.dataset.countryName&&row.dataset.countryName.toLowerCase().includes(cVal));
         const visible=(!filterSearch.value||row.dataset.find.includes(filterSearch.value.toLowerCase()))&&
                       (!filterSkill.value||row.dataset.skills.includes('|'+filterSkill.value.toLowerCase()+'|'))&&
                       +row.dataset.months>=+filterExperience.value&&
                       (!filterSource.value||row.dataset.source===filterSource.value)&&
+                      countryOk&&
                       scoreOk&&
                       ageOk&&
                       (!filterStage.value||row.dataset.stage===filterStage.value);
@@ -544,7 +576,7 @@ function filterCandidates(){
     filterCount.textContent=shown+' candidates';
 }
 
-[filterSearch,filterSkill,filterExperience,filterSource,filterScore,filterAge,filterStage,filterSort].forEach(control=>{ if(control) control.addEventListener('input',filterCandidates); });
+[filterSearch,filterSkill,filterExperience,filterSource,filterCountry,filterScore,filterAge,filterStage,filterSort].forEach(control=>{ if(control) control.addEventListener('input',filterCandidates); });
 
 const skillSelect=document.getElementById('filterSkill'),
 skillField=skillSelect?.closest('.filter-field');

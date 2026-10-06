@@ -23,8 +23,86 @@ function cleanText(string $text): string {
         $text = mb_scrub($text, 'UTF-8');
     }
     $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-    $text = preg_replace('/\s+/u', ' ', $text);
+    $text = preg_replace('/\r\n|\r/', "\n", $text);
+    $text = preg_replace('/[ \t]+/u', ' ', $text);
+    $text = preg_replace('/\n{3,}/u', "\n\n", $text);
     return trim((string)$text);
+}
+
+function extractCandidateNameInfo(string $text): array {
+    $lines = preg_split('/\R/', trim($text));
+    $name = '';
+    $role = 'Candidate';
+
+    foreach ($lines as $idx => $line) {
+        $line = trim($line);
+        if (mb_strlen($line) < 2) continue;
+
+        if (preg_match('/@|http|www\.|\+?\d{8,}|summary|experience|education|skills|projects|curriculum|resume|profile/i', $line)) {
+            continue;
+        }
+
+        $cleanLine = trim(preg_replace('/[^\p{L}\s\.-]/u', ' ', $line));
+        $cleanLine = trim(preg_replace('/\s+/', ' ', $cleanLine));
+        $words = explode(' ', $cleanLine);
+
+        if (count($words) >= 1 && count($words) <= 5 && mb_strlen($cleanLine) <= 50) {
+            $isNameCandidate = true;
+            foreach ($words as $w) {
+                if (mb_strlen($w) < 2 || preg_match('/\d/', $w)) {
+                    $isNameCandidate = false;
+                    break;
+                }
+            }
+            if ($isNameCandidate) {
+                $name = ucwords(mb_strtolower($cleanLine));
+                if (isset($lines[$idx + 1])) {
+                    $next = trim($lines[$idx + 1]);
+                    if (!preg_match('/@|http|\+?\d{8,}/', $next) && mb_strlen($next) <= 60 && mb_strlen($next) >= 3) {
+                        $role = ucwords(mb_strtolower($next));
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    return ['name' => $name ?: 'Unknown candidate', 'role' => $role];
+}
+
+function extractCountryInfo(string $text): array {
+    $countryMap = [
+        'india' => ['India', 'IN'],
+        'kenya' => ['Kenya', 'KE'],
+        'united states' => ['United States', 'US'],
+        'usa' => ['United States', 'US'],
+        'united kingdom' => ['United Kingdom', 'GB'],
+        'uk' => ['United Kingdom', 'GB'],
+        'canada' => ['Canada', 'CA'],
+        'australia' => ['Australia', 'AU'],
+        'germany' => ['Germany', 'DE'],
+        'france' => ['France', 'FR'],
+        'united arab emirates' => ['United Arab Emirates', 'AE'],
+        'uae' => ['United Arab Emirates', 'AE'],
+        'dubai' => ['United Arab Emirates', 'AE'],
+        'philippines' => ['Philippines', 'PH'],
+        'singapore' => ['Singapore', 'SG'],
+        'nigeria' => ['Nigeria', 'NG'],
+        'ireland' => ['Ireland', 'IE'],
+        'spain' => ['Spain', 'ES'],
+        'egypt' => ['Egypt', 'EG'],
+        'indonesia' => ['Indonesia', 'ID'],
+        'honduras' => ['Honduras', 'HN'],
+        'finland' => ['Finland', 'FI'],
+    ];
+
+    $textLower = mb_strtolower($text, 'UTF-8');
+    foreach ($countryMap as $key => [$cName, $cCode]) {
+        if (preg_match('/(?<=^|[\s,.\/;:()\[\]{}!?-])' . preg_quote($key, '/') . '(?=$|[\s,.\/;:()\[\]{}!?-])/i', $textLower)) {
+            return ['country_name' => $cName, 'country_code' => $cCode];
+        }
+    }
+    return ['country_name' => '', 'country_code' => ''];
 }
 
 function commandExists(string $cmd): bool {
@@ -329,13 +407,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $phone = extractPhone($extractedText);
             $experience = analyzeExperienceTimeline($extractedText, $detectedSkills);
 
-            $resObjTemp = [
-                'extracted_text' => $extractedText,
-                'name' => '',
-                'stored_filename' => $storedName
-            ];
-            $candPresentation = candidatePresentation($resObjTemp);
-            $candName = $candPresentation['name'];
+            $nameInfo = extractCandidateNameInfo($extractedText);
+            $countryInfo = extractCountryInfo($extractedText);
+            $candName = $nameInfo['name'];
+            $candRole = $nameInfo['role'];
 
             // STRICT VALIDATION FOR UNFIT / EMPTY DOCUMENTS
             if (mb_strlen($extractedText) < 30 || ($candName === 'Unknown candidate' && empty($email) && empty($phone))) {
@@ -369,8 +444,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'processing_error'  => $extractionError,
                 'extracted_text'    => $extractedText,
                 'text_length'       => mb_strlen($extractedText),
+                'name'              => $candName,
+                'role'              => $candRole,
                 'email'             => $email,
                 'phone'             => $phone,
+                'country_name'      => $countryInfo['country_name'],
+                'country_code'      => $countryInfo['country_code'],
                 'detected_skills'   => $detectedSkills,
                 'match_score'       => $score,
                 'jd_keywords'       => $jdTokens,
@@ -385,7 +464,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $batchSummary[] = [
                 'file'   => $originalName,
                 'status' => 'success',
-                'name'   => candidatePresentation($resObj)['name'],
+                'name'   => $candName,
                 'score'  => $score,
                 'email'  => $email
             ];
@@ -476,14 +555,14 @@ require __DIR__ . '/views/partials/header.php';
 <?php endif; ?>
 
 <div class="ingestion-card">
-  <h2>📄 Upload Candidate Resumes</h2>
+  <h2><i class="fa-solid fa-file-arrow-up" style="color:#6366f1;margin-right:6px"></i> Upload Candidate Resumes</h2>
   <p style="font-size:13px;color:#6b7280;margin:0 0 16px">Select an active job profile to match requirements, or pick "Open Pool" for general ingestion without typing a JD.</p>
 
   <form method="post" enctype="multipart/form-data" id="ingestionForm">
     <div class="job-select-toolbar">
       <label style="font-size:12px;font-weight:800;color:#374151;text-transform:uppercase;display:block;margin-bottom:6px">Target Job Profile:</label>
       <select class="control" name="job_id" id="jobSelect" onchange="onJobSelect(this)" style="font-size:13px;border-radius:10px;padding:10px 14px;width:100%;border:1px solid #d1d5db;background:#fff">
-        <option value="0" data-skills="" data-desc="">✨ General Ingestion / Open Pool (All Roles)</option>
+        <option value="0" data-skills="" data-desc="">General Ingestion / Open Pool (All Roles)</option>
         <?php foreach ($openJobs as $job): 
           $jdSkills = json_decode($job['required_skills_json'] ?? '[]', true) ?: [];
           $jdText = trim((string)$job['description']);
@@ -492,7 +571,7 @@ require __DIR__ . '/views/partials/header.php';
           }
         ?>
         <option value="<?= (int)$job['id'] ?>" data-jd="<?= htmlspecialchars($jdText) ?>">
-          🎯 <?= htmlspecialchars($job['title']) ?>
+          <?= htmlspecialchars($job['title']) ?>
         </option>
         <?php endforeach; ?>
       </select>
@@ -549,7 +628,7 @@ require __DIR__ . '/views/partials/header.php';
       <strong style="font-size:12px;color:#374151">Detected Skills:</strong>
       <div class="pill-container">
         <?php foreach ($result['detected_skills'] as $sk): ?>
-          <span class="pill skill">✓ <?= htmlspecialchars($sk) ?></span>
+          <span class="pill skill"><i class="fa-solid fa-check" style="font-size:10px;margin-right:2px"></i> <?= htmlspecialchars($sk) ?></span>
         <?php endforeach; ?>
         <?php if (empty($result['detected_skills'])): ?>
           <span style="font-size:12px;color:#9ca3af">No standard dictionary skills detected.</span>
