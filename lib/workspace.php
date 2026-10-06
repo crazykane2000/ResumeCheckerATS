@@ -170,6 +170,26 @@ function saveCandidateRecord(array $result, ?int $jobId = null): void {
     $cName = !empty($result['country_name']) ? trim($result['country_name']) : '';
     $email = trim((string)($result['email'] ?? ''));
 
+    // Auto-match best open workspace job if no specific job_id was selected at upload time
+    if (!$jobId) {
+        try {
+            $openJobs = db()->query("SELECT j.id,j.title,j.required_skills_json,j.preferred_skills_json,j.min_experience FROM jobs j WHERE j.status IN ('open','draft') AND j.required_skills_json IS NOT NULL AND j.required_skills_json != '' AND j.required_skills_json != '[]'")->fetchAll();
+            $bestScore = -1;
+            $bestJobId = null;
+            $candTemp = ['skills' => $result['detected_skills'], 'experience' => $result['experience'], 'role' => $role];
+            foreach ($openJobs as $j) {
+                $m = applicationEvidenceMatch($candTemp, $j);
+                if (($m['score'] ?? 0) > $bestScore) {
+                    $bestScore = (int)$m['score'];
+                    $bestJobId = (int)$j['id'];
+                }
+            }
+            if ($bestJobId) {
+                $jobId = $bestJobId;
+            }
+        } catch (Throwable $e) {}
+    }
+
     // Check for existing candidate application by email to avoid duplicate rows
     $existingId = null;
     if ($email !== '') {
@@ -203,9 +223,21 @@ function normalizeCandidateSource(?string $source): string {
 function loadCandidateRecords(): array {
     try{
         $rows=db()->query('SELECT c.*,j.title job_title,j.description job_description,j.min_experience job_min_experience,j.max_experience job_max_experience,j.required_skills_json job_required_skills_json,j.preferred_skills_json job_preferred_skills_json FROM candidates c LEFT JOIN jobs j ON j.id=c.job_id ORDER BY c.created_at DESC')->fetchAll();
-        if($rows)return array_map(function($r){
+        $openJobsCache=null;
+        if($rows)return array_map(function($r) use (&$openJobsCache){
             $candidate=['id'=>$r['id'],'job_id'=>$r['job_id']??null,'name'=>$r['name'],'role'=>$r['role_title'],'email'=>$r['email'],'phone'=>$r['phone'],'country_code'=>countryCodeFromName($r['country_code'],$r['country_name']),'country_name'=>$r['country_name'],'legacy_score'=>(int)$r['score'],'stage'=>$r['stage'],'source'=>normalizeCandidateSource($r['source_name']??''),'skills'=>json_decode($r['skills_json']??'[]',true)?:[],'experience'=>json_decode($r['experience_json']??'{}',true)?:[],'analysis'=>json_decode($r['analysis_json']??'{}',true)?:[],'file'=>$r['stored_file'],'source_url'=>$r['source_url']??null,'created_at'=>$r['created_at']];
             $job=$r['job_id']?['id'=>(int)$r['job_id'],'title'=>$r['job_title'],'description'=>$r['job_description'],'min_experience'=>$r['job_min_experience'],'max_experience'=>$r['job_max_experience'],'required_skills_json'=>$r['job_required_skills_json'],'preferred_skills_json'=>$r['job_preferred_skills_json']]:null;
+            if(!$job && !empty($candidate['skills'])){
+                if($openJobsCache===null){
+                    $openJobsCache=db()->query("SELECT j.id,j.title,j.description,j.min_experience,j.max_experience,j.required_skills_json,j.preferred_skills_json FROM jobs j WHERE j.status IN ('open','draft') AND j.required_skills_json IS NOT NULL AND j.required_skills_json != '' AND j.required_skills_json != '[]'")->fetchAll();
+                }
+                $bestScore=-1;$bestJob=null;
+                foreach($openJobsCache as $j){
+                    $m=applicationEvidenceMatch($candidate,$j);
+                    if(($m['score']??0)>$bestScore){$bestScore=(int)$m['score'];$bestJob=$j;}
+                }
+                if($bestJob)$job=$bestJob;
+            }
             $candidate['job']=$job;$candidate['job_title']=trim((string)($job['title']??$candidate['role']));$candidate['job_match']=applicationEvidenceMatch($candidate,$job??[]);$candidate['score']=$candidate['job_match']['score'];
             return $candidate;
         },$rows);

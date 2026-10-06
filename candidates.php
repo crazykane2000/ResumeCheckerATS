@@ -181,17 +181,6 @@ require __DIR__.'/views/partials/header.php';
             <small>Highest first</small>
         </div>
         <div class="job-list-items">
-            <button class="job-row <?=$activeJobId===0?'active':''?>" onclick="location.href='candidates.php'" style="background:linear-gradient(135deg,#fcfbff,#f4edff);border-color:#d9cdff">
-                <span>
-                    <strong style="color:var(--primary)"><i class="fa-solid fa-layer-group"></i> All Workspace Candidates</strong>
-                    <small>Global workspace pool</small>
-                </span>
-                <span class="job-counts">
-                    <b style="color:var(--primary)"><?=$totalApplicants?></b> total<br>
-                    <small><?=$totalWishlist?> wishlist</small>
-                </span>
-            </button>
-            <div style="height:1px;background:var(--line);margin:4px 0 8px"></div>
             <?php foreach($jobs as $job):?>
                 <button class="job-row <?=$activeJobId===(int)$job['id']?'active':''?>" onclick="location.href='candidates.php?job=<?=(int)$job['id']?>'">
                     <span>
