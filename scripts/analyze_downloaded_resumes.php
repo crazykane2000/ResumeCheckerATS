@@ -24,14 +24,14 @@ foreach($rows as $index=>$row){
     try{
         $extraction=extractResumeText($path,$ext);$text=$extraction['text']??'';
         if(($extraction['requires_ocr']??false))$ocr++;
-        if(trim($text)===''){$audit->execute([$actorId,'candidate.resume_analysis_failed','candidate',$row['id'],json_encode(['reason'=>'no_usable_text','requires_ocr'=>(bool)($extraction['requires_ocr']??false),'script'=>'analyze_downloaded_resumes','outcome'=>'failed'])]);$failed++;continue;}
         $skills=extractDetectedSkills($text);
         $experience=analyzeExperienceTimeline($text,$skills);
         $jd=$jobs[(int)($row['job_id']??0)]??'';
         [$score,$matched,$missing,$tokens]=basicMatch($jd,$text);
-        $analysis=['matched_keywords'=>$matched,'missing_keywords'=>$missing,'jd_keywords'=>$tokens,'processing_status'=>($extraction['requires_ocr']??false)?'needs_review':'processed','text_length'=>mb_strlen($text),'source_url'=>$row['source_url'],'parser_warning'=>$extraction['error']??null];
+        $status=($extraction['requires_ocr']??false)?'requires_ocr':(trim($text)===''?'no_usable_text':'processed');
+        $analysis=['matched_keywords'=>$matched,'missing_keywords'=>$missing,'jd_keywords'=>$tokens,'processing_status'=>$status,'text_length'=>mb_strlen($text),'raw_text'=>$text,'source_url'=>$row['source_url'],'parser_warning'=>$extraction['error']??null];
         $update->execute([$score,json_encode($skills),json_encode($experience),json_encode($analysis),$row['id']]);
-        $audit->execute([$actorId,'candidate.resume_analyzed','candidate',$row['id'],json_encode(['skills'=>count($skills),'timeline_jobs'=>count($experience['jobs']??[]),'requires_ocr'=>(bool)($extraction['requires_ocr']??false),'script'=>'analyze_downloaded_resumes','outcome'=>'success'])]);
+        $audit->execute([$actorId,'candidate.resume_analyzed','candidate',$row['id'],json_encode(['skills'=>count($skills),'timeline_jobs'=>count($experience['jobs']??[]),'requires_ocr'=>(bool)($extraction['requires_ocr']??false),'processing_status'=>$status,'script'=>'analyze_downloaded_resumes','outcome'=>'success'])]);
         $processed++;
     }catch(Throwable $e){$audit->execute([$actorId,'candidate.resume_analysis_failed','candidate',$row['id'],json_encode(['reason'=>'parser_error','script'=>'analyze_downloaded_resumes','outcome'=>'failed'])]);$failed++;}
     if((($index+1)%10)===0)echo 'progress='.($index+1).'/'.count($rows).' processed='.$processed.' failed='.$failed.PHP_EOL;

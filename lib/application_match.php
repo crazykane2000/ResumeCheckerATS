@@ -34,7 +34,8 @@ function applicationEvidenceMatch(array $candidate,array $job): array {
     $preferred=array_values(array_unique(array_filter(array_map('trim',json_decode($job['preferred_skills_json']??'[]',true)?:[]))));
     $candidateSkills=[];foreach($candidate['skills']??[] as $skill){$key=applicationMatchSkillKey((string)$skill);if($key!=='')$candidateSkills[$key]=trim((string)$skill);}
     $experienceMonths=[];foreach($candidate['experience']['skill_months']??[] as $skill=>$months)$experienceMonths[applicationMatchSkillKey((string)$skill)]=max(0,(int)$months);
-    $analyzed=(bool)$candidateSkills||!empty($experienceMonths)||!empty($candidate['experience']['jobs']);
+    $analysis=$candidate['analysis']??[];
+    $analyzed=(bool)$candidateSkills||!empty($experienceMonths)||!empty($candidate['experience']['jobs'])||!empty($analysis['text_length'])||!empty($analysis['raw_text'])||!empty($analysis['processing_status'])||isset($candidate['legacy_score']);
     $relations=applicationMatchRelations();$mapping=[];$mandatoryFactors=[];$evidenceFactors=[];$experienceRatios=[];
     $minimumMonths=max(0,(int)round((float)($job['min_experience']??0)*12));
     foreach($required as $requirement){

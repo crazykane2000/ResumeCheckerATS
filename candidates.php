@@ -330,7 +330,7 @@ require __DIR__.'/views/partials/header.php';
                                     <td><strong><?=htmlspecialchars($candidate['stage'])?></strong></td>
                                     <td><span class="rank"><?=$i<5?'TOP '.($i+1):'RESERVE '.($i-4)?></span></td>
                                     <td class="experience-cell"><?=$months?round($months/12,1).' yrs':'Uncertain'?></td>
-                                    <td><span class="score"><?=$candidate['analyzed']?$candidate['job_score'].'%':'Needs analysis'?></span></td>
+                                    <td class="score-cell"><?php if(!empty($candidate['analysis']['requires_ocr'])||($candidate['analysis']['processing_status']??'')==='requires_ocr'):?><span class="score" style="color:#8c610d;background:#fff5e7;padding:3px 7px;border-radius:5px;font-size:10px;font-weight:700">Needs OCR</span><?php else:?><span class="score"><?=$candidate['analyzed']?$candidate['job_score'].'%':'Needs analysis'?></span><?php endif?></td>
                                     <td style="white-space:nowrap">
                                         <?php if($candidate['old']):?>
                                             <span class="old-label"><i class="fa-solid fa-triangle-exclamation"></i> Old application</span>
