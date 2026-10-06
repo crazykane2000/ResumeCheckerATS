@@ -24,8 +24,8 @@ if(isset($_GET['scheduled'])){$s=(int)$_GET['scheduled'];$f=(int)($_GET['failed'
 $activePage='wishlist';$pageTitle='Interview invitations · ResumeIQ';
 $pageStyles='<style>
 .invite-head{padding:20px;display:flex;justify-content:space-between;align-items:center}
-.invite-grid{display:grid;grid-template-columns:3fr 3.2fr 3.8fr;gap:16px;margin-top:14px;width:100%}
-.invite-box{padding:20px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,0.03);background:#fff;display:flex;flex-direction:column}
+.invite-grid{display:grid;grid-template-columns:minmax(0,22fr) minmax(0,30fr) minmax(0,48fr);gap:16px;margin-top:14px;width:100%}
+.invite-box{min-width:0;padding:20px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,0.03);background:#fff;display:flex;flex-direction:column}
 .candidate-search{margin:10px 0}
 .recipient-list{max-height:580px;overflow-y:auto;border-top:1px solid var(--line);padding-right:4px}
 .recipient{display:grid;grid-template-columns:24px 32px 1fr auto;gap:10px;align-items:center;padding:11px 6px;border-bottom:1px solid var(--line);transition:background 0.15s ease}
@@ -37,7 +37,7 @@ $pageStyles='<style>
 .score-badge{font-size:12px;color:var(--primary);font-weight:800}
 .compose label{display:block;font-size:11px;font-weight:700;margin:12px 0 5px;color:var(--text)}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.compose textarea{min-height:120px;line-height:1.6;font-family:inherit}
+.compose textarea{min-height:110px;line-height:1.6;font-family:inherit}
 .send-row{display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}
 .send-row .btn{height:42px}
 .smtp-warning{padding:11px;background:#fff5e7;color:#8c610d;border-radius:8px;margin-top:10px}
@@ -48,11 +48,26 @@ $pageStyles='<style>
 .sched-mode-tab{padding:5px 12px;font-size:11px;font-weight:700;border:0;border-radius:6px;cursor:pointer;transition:all 0.2s ease}
 .sched-mode-tab.active{background:#fff;color:var(--primary);box-shadow:0 1px 4px rgba(0,0,0,0.1)}
 .buffer-info-box{margin-top:10px;padding:10px 12px;background:#eef6ff;border-left:3px solid #2b7fff;border-radius:6px;font-size:11px;color:#1e40af;line-height:1.5}
-.live-preview-box{background:#f8f9fc;border:1px solid var(--line);overflow:hidden}
-.preview-header-bar{padding:12px 16px;background:#fff;border-bottom:1px solid var(--line);border-radius:8px 8px 0 0;display:flex;flex-direction:column;gap:6px}
-.template-preview-frame{width:100%;height:680px;border:0;background:#fff;border-radius:0 0 8px 8px}
-@media(max-width:1250px){.invite-grid{grid-template-columns:1fr 1fr}.live-preview-box{grid-column:span 2;margin-top:10px}}
-@media(max-width:768px){.invite-grid{grid-template-columns:1fr}.live-preview-box{grid-column:span 1}.pair{grid-template-columns:1fr}}
+.live-preview-box{min-width:0;background:#f8f9fc;border:1px solid var(--line);overflow:hidden;padding:0;display:flex;flex-direction:column}
+.preview-header-bar{padding:14px 18px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.template-frame-wrap-inline{width:100%;flex:1;background:#f6f5f9;padding:16px;overflow-x:auto;display:flex;justify-content:center;align-items:flex-start}
+.template-preview-frame{width:100%;max-width:680px;min-height:640px;height:100%;border:0;background:#fff;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.06)}
+.mail-preview{position:fixed;inset:0;z-index:120;margin:0;background:#17122566;backdrop-filter:blur(4px);display:none;overflow:auto;padding:30px 16px}
+.mail-preview.open{display:block}
+.mail-preview>.preview-toolbar,.mail-preview>.template-frame-wrap{width:min(900px,100%);margin-left:auto;margin-right:auto}
+.mail-preview>.preview-toolbar{border-radius:12px 12px 0 0;padding:14px 18px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.mail-preview>.template-frame-wrap{border-radius:0 0 12px 12px;overflow:hidden;background:#fff}
+.modal-preview-frame{display:block;width:100%;height:min(80vh,900px);border:0;background:#f6f5f9}
+
+@media(min-width:900px){
+  .invite-grid{grid-template-columns:minmax(0,22fr) minmax(0,30fr) minmax(0,48fr)}
+  .live-preview-box{grid-column:span 1;margin-top:0}
+}
+@media(max-width:899px){
+  .invite-grid{grid-template-columns:1fr}
+  .live-preview-box{grid-column:span 1;margin-top:14px;width:100%}
+  .pair{grid-template-columns:1fr}
+}
 </style>';
 require __DIR__.'/views/partials/header.php';
 ?>
@@ -77,7 +92,7 @@ require __DIR__.'/views/partials/header.php';
   <input type="hidden" name="action" value="send">
   <input type="hidden" name="job_id" value="<?=$jobId?>">
   
-  <!-- COLUMN 1 (30%): RECIPIENTS -->
+  <!-- COLUMN 1 (22%): RECIPIENTS -->
   <section class="panel invite-box">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <h2>Recipients</h2>
@@ -104,7 +119,7 @@ require __DIR__.'/views/partials/header.php';
     </div>
   </section>
 
-  <!-- COLUMN 2 (30%): INVITATION COMPOSER & SCHEDULE -->
+  <!-- COLUMN 2 (28%): INVITATION COMPOSER & SCHEDULE -->
   <section class="panel invite-box compose">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <h2>Invitation & Schedule</h2>
@@ -234,26 +249,43 @@ Hiring Team</textarea>
 
     <div class="send-row">
       <small class="muted">Only successful deliveries move candidates to Interview.</small>
-      <button type="submit" class="btn btn-primary" id="sendBtn" <?=$deliveryReady?'':'disabled'?> onclick="return confirm('Send interview invitations to the selected candidates?')">
-        <i class="fa-solid fa-paper-plane"></i> Send invitations
-      </button>
+      <div style="display:flex;gap:8px">
+        <button type="button" class="btn" id="previewOpenBtn"><i class="fa-regular fa-eye"></i> Preview email</button>
+        <button type="submit" class="btn btn-primary" id="sendBtn" <?=$deliveryReady?'':'disabled'?> onclick="return confirm('Send interview invitations to the selected candidates?')">
+          <i class="fa-solid fa-paper-plane"></i> Send invitations
+        </button>
+      </div>
     </div>
   </section>
 
-  <!-- COLUMN 3 (40%): LIVE EMAIL PREVIEW COLUMN -->
+  <!-- COLUMN 3 (50% WIDEST COLUMN): LIVE EMAIL PREVIEW COLUMN -->
   <section class="panel invite-box live-preview-box">
     <div class="preview-header-bar">
-      <div style="display:flex;justify-content:space-between;align-items:center">
+      <div>
         <strong style="font-size:13px;color:var(--text)"><i class="fa-solid fa-eye" style="color:var(--primary);margin-right:6px"></i> Live Email Preview</strong>
-        <span class="tag" style="font-size:10px;background:var(--primary-soft);color:var(--primary)">Real-time view</span>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px" id="previewRecipients">No recipients selected</div>
       </div>
-      <div style="font-size:11px;color:var(--muted)" id="previewRecipients">No recipients selected</div>
+      <button type="button" class="btn" id="colModalBtn" style="padding:6px 14px;font-size:11px;background:#fff;border:1px solid var(--line);box-shadow:0 1px 3px rgba(0,0,0,0.05)"><i class="fa-solid fa-expand" style="color:var(--primary);margin-right:4px"></i> Full Modal View</button>
     </div>
-    <div style="flex:1;overflow:hidden;background:#fff;border-radius:0 0 8px 8px">
+    <div class="template-frame-wrap-inline">
       <iframe class="template-preview-frame" id="templatePreviewFrame" title="Interview email preview" sandbox="allow-popups"></iframe>
     </div>
   </section>
 </form>
+
+<!-- FULL-SCREEN PREVIEW MODAL -->
+<section class="mail-preview" id="emailPreviewModal">
+  <div class="preview-toolbar">
+    <div>
+      <strong>NonceBlox interview email — Full Modal View</strong>
+      <div class="preview-recipients" id="modalPreviewRecipients" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+    </div>
+    <button type="button" class="btn" id="previewCloseBtn"><i class="fa-solid fa-xmark"></i> Close</button>
+  </div>
+  <div class="template-frame-wrap">
+    <iframe class="modal-preview-frame" id="modalPreviewFrame" title="Interview email modal preview" sandbox="allow-popups"></iframe>
+  </div>
+</section>
 
 <script>
 const rows=[...document.querySelectorAll('.recipient')],search=document.getElementById('candidateSearch'),boxes=[...document.querySelectorAll('.recipient input[type="checkbox"]')],summary=document.getElementById('recipientSummary');
@@ -320,7 +352,10 @@ if(actionLink){
 }
 
 const canonicalEmailTemplate=<?=json_encode(file_get_contents(__DIR__.'/assets/interview_email_template.html'),JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;
-const canonicalFrame=document.getElementById('templatePreviewFrame'),canonicalRecipients=document.getElementById('previewRecipients');
+const colFrame=document.getElementById('templatePreviewFrame'),colRecipients=document.getElementById('previewRecipients');
+const modalFrame=document.getElementById('modalPreviewFrame'),modalRecipients=document.getElementById('modalPreviewRecipients'),emailModal=document.getElementById('emailPreviewModal');
+const previewOpenBtn=document.getElementById('previewOpenBtn'),colModalBtn=document.getElementById('colModalBtn'),previewCloseBtn=document.getElementById('previewCloseBtn');
+
 const subjectInput=document.querySelector('[name="subject"]'),bodyInput=document.querySelector('[name="body"]'),startDateInput=document.querySelector('[name="availability_start"]'),startTimeInput=document.querySelector('[name="daily_start"]'),timezoneInput=document.querySelector('[name="timezone"]');
 
 function selectedRows(){return boxes.filter(box=>box.checked&&!box.disabled).map(box=>({box,name:box.closest('.recipient').querySelector('strong').textContent.trim()}))}
@@ -330,13 +365,28 @@ let canonicalPreviewUrl='';
 function renderCanonicalPreview(){
   const selected=selectedRows(),first=selected[0]?.name||'Candidate',date=startDateInput.value||'Interview date',time=startTimeInput.value||'Interview time',timezone=timezoneInput.value||'Asia/Kolkata';
   const html=canonicalEmailTemplate.replaceAll('{{candidate_name}}',previewEscape(first)).replaceAll('{{job_title}}',previewEscape(<?=json_encode(trim($job['title']))?>)).replaceAll('{{interview_date}}',previewEscape(date)).replaceAll('{{interview_time}}',previewEscape(time)).replaceAll('{{timezone}}',previewEscape(timezone));
+  
   if(canonicalPreviewUrl)URL.revokeObjectURL(canonicalPreviewUrl);
   canonicalPreviewUrl=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
-  canonicalFrame.src=canonicalPreviewUrl;
-  if(canonicalRecipients){
-    canonicalRecipients.textContent=selected.length? 'Selected (' + selected.length + '): ' + selected.map(item=>item.name).join(' · ') : 'No recipients selected';
-  }
+  
+  if(colFrame)colFrame.src=canonicalPreviewUrl;
+  if(modalFrame)modalFrame.src=canonicalPreviewUrl;
+
+  const recipText = selected.length ? 'Selected (' + selected.length + '): ' + selected.map(item=>item.name).join(' · ') : 'No recipients selected';
+  if(colRecipients)colRecipients.textContent=recipText;
+  if(modalRecipients)modalRecipients.textContent=recipText;
 }
+
+function openModalView(){
+  renderCanonicalPreview();
+  if(emailModal)emailModal.classList.add('open');
+}
+
+if(previewOpenBtn)previewOpenBtn.onclick=openModalView;
+if(colModalBtn)colModalBtn.onclick=openModalView;
+if(previewCloseBtn)previewCloseBtn.onclick=()=>emailModal.classList.remove('open');
+if(emailModal)emailModal.addEventListener('click',e=>{if(e.target===emailModal)emailModal.classList.remove('open');});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&emailModal)emailModal.classList.remove('open');});
 
 [subjectInput,bodyInput,startDateInput,startTimeInput,timezoneInput].forEach(inp=>{if(inp)inp.addEventListener('input',renderCanonicalPreview);});
 boxes.forEach(box=>box.addEventListener('change',async()=>{

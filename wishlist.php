@@ -5,56 +5,342 @@ require_once __DIR__.'/lib/workspace.php';
 require_once __DIR__.'/lib/branding.php';
 $pdo=db();$user=currentUser();$brand=organizationBrand();$message='';$error='';
 $ownerId=(int)$pdo->query('SELECT MIN(id) FROM users')->fetchColumn();$isOwner=(int)($user['id']??0)===$ownerId;
+
 function roleKey(string $value):string{$value=mb_strtolower(trim($value));$value=preg_replace('/^sr\.?\s+/','senior ',$value);return preg_replace('/\s+/',' ',$value);}
+
 function brandedEmailHtml(array $brand,string $domain,string $logoUrl,string $message):string{
     $company=htmlspecialchars($brand['name']?:'NonceBlox ATS',ENT_QUOTES|ENT_HTML5,'UTF-8');$safeDomain=htmlspecialchars($domain,ENT_QUOTES|ENT_HTML5,'UTF-8');$safeLogo=htmlspecialchars($logoUrl,ENT_QUOTES|ENT_HTML5,'UTF-8');$copy=nl2br(htmlspecialchars($message,ENT_QUOTES|ENT_HTML5,'UTF-8'));
     $mark=$safeLogo!==''?'<img src="'.$safeLogo.'" alt="'.$company.'" style="display:block;max-width:130px;max-height:52px">':'<div style="font-size:24px;font-weight:800;color:#6842ff">'.$company.'</div>';
     return '<!doctype html><html><body style="margin:0;background:#f4f5f9;font-family:Arial,sans-serif;color:#202330"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f5f9;padding:30px 15px"><tr><td align="center"><table role="presentation" width="640" cellspacing="0" cellpadding="0" style="width:100%;max-width:640px;background:#fff;border:1px solid #e7e5f0;border-radius:12px;overflow:hidden"><tr><td style="padding:24px 30px;background:linear-gradient(135deg,#faf9ff,#f0edff)">'.$mark.'<div style="margin-top:8px;color:#727786;font-size:13px">'.$safeDomain.'</div></td></tr><tr><td style="padding:34px 30px;font-size:15px;line-height:1.75">'.$copy.'</td></tr><tr><td style="padding:18px 30px;border-top:1px solid #eceaf3;color:#858997;font-size:12px">'.$company.' · '.$safeDomain.'</td></tr></table></td></tr></table></body></html>';
 }
+
 if(isset($_GET['deleted']))$message=$_GET['deleted']==='1'?'Candidate and related operational records deleted.':'Candidate was already unavailable.';
+
 if($_SERVER['REQUEST_METHOD']==='POST'&&verifyCsrf($_POST['csrf']??'')){
     try{
-        $action=$_POST['action']??'';$profile=(int)($_POST['profile_id']??0);$owned=$pdo->prepare('SELECT name FROM wishlist_profiles WHERE id=? AND user_id=?');$owned->execute([$profile,$user['id']]);$profileName=(string)$owned->fetchColumn();if($profile&&!$profileName)throw new RuntimeException('Invalid profile.');
-        if($action==='create_profile'){$name=trim($_POST['profile_name']??'');if(!$name)throw new RuntimeException('Profile name is required.');$pdo->prepare('INSERT IGNORE INTO wishlist_profiles(user_id,name) VALUES(?,?)')->execute([$user['id'],$name]);$message='Profile created.';}
-        elseif($action==='add'){$candidate=$_POST['candidate_id']??'';$s=$pdo->prepare('SELECT role_title FROM candidates WHERE id=?');$s->execute([$candidate]);$role=(string)$s->fetchColumn();if(!$role||roleKey($role)!==roleKey($profileName))throw new RuntimeException('Candidate can only be added to the job they applied for.');$pdo->prepare("INSERT INTO wishlist_items(profile_id,candidate_id,disposition) VALUES(?,?,'wishlist') ON DUPLICATE KEY UPDATE disposition=IF(disposition='blacklisted',disposition,'wishlist')")->execute([$profile,$candidate]);$message='Candidate added to '.$profileName.'.';}
-        elseif($action==='status'){$status=$_POST['status']??'';if(!in_array($status,['wishlist','selected','blacklisted'],true))throw new RuntimeException('Invalid status.');$pdo->prepare('UPDATE wishlist_items SET disposition=? WHERE profile_id=? AND candidate_id=?')->execute([$status,$profile,$_POST['candidate_id']??'']);$message='Candidate status updated.';}
+        $action=$_POST['action']??'';$profile=(int)($_POST['profile_id']??0);
+        $profileName='';
+        if($profile){
+            $owned=$pdo->prepare('SELECT name FROM wishlist_profiles WHERE id=? AND user_id=?');
+            $owned->execute([$profile,$user['id']]);
+            $profileName=(string)$owned->fetchColumn();
+            if(!$profileName)throw new RuntimeException('Invalid profile.');
+        }
+
+        if($action==='create_profile'){
+            $name=trim($_POST['profile_name']??'');
+            if(!$name)throw new RuntimeException('Profile name is required.');
+            $pdo->prepare('INSERT IGNORE INTO wishlist_profiles(user_id,name) VALUES(?,?)')->execute([$user['id'],$name]);
+            $message='Profile created.';
+        }
+        elseif($action==='add'){
+            $candidate=$_POST['candidate_id']??'';
+            $s=$pdo->prepare('SELECT role_title FROM candidates WHERE id=?');
+            $s->execute([$candidate]);
+            $role=(string)$s->fetchColumn();
+            if(!$role||roleKey($role)!==roleKey($profileName))throw new RuntimeException('Candidate can only be added to the job they applied for.');
+            $pdo->prepare("INSERT INTO wishlist_items(profile_id,candidate_id,disposition) VALUES(?,?,'wishlist') ON DUPLICATE KEY UPDATE disposition=IF(disposition='blacklisted',disposition,'wishlist')")->execute([$profile,$candidate]);
+            $message='Candidate added to '.$profileName.'.';
+        }
+        elseif($action==='status'){
+            $status=$_POST['status']??'';
+            if(!in_array($status,['wishlist','selected','blacklisted'],true))throw new RuntimeException('Invalid status.');
+            $pdo->prepare('UPDATE wishlist_items SET disposition=? WHERE profile_id=? AND candidate_id=?')->execute([$status,$profile,$_POST['candidate_id']??'']);
+            $message='Candidate status updated.';
+        }
         elseif($action==='email'){
-            $ids=array_values(array_unique(array_filter($_POST['candidate_ids']??[])));$subject=trim($_POST['subject']??'');$body=trim($_POST['body']??'');$date=trim($_POST['interview_date']??'');$time=trim($_POST['interview_time']??'');$timezone=trim($_POST['timezone']??'Asia/Kolkata');if(!$ids||!$subject||!$body)throw new RuntimeException('Select candidates and complete the preview.');
-            $marks=implode(',',array_fill(0,count($ids),'?'));$s=$pdo->prepare("SELECT c.id,c.email FROM candidates c JOIN wishlist_items wi ON wi.candidate_id=c.id WHERE wi.profile_id=? AND wi.disposition='wishlist' AND c.id IN ($marks) AND NOT EXISTS(SELECT 1 FROM interview_invite_locks il WHERE il.profile_id=wi.profile_id AND il.candidate_id=c.id AND il.active=1)");$s->execute(array_merge([$profile],$ids));$recipients=$s->fetchAll();if(count($recipients)!==count($ids))throw new RuntimeException('A selected candidate is unavailable or already invited. Reset the invitation lock first.');
-            $domain=trim((string)($brand['domain']??''));if($domain==='')$domain=parse_url((string)$pdo->query('SELECT public_url FROM jobs WHERE public_url IS NOT NULL LIMIT 1')->fetchColumn(),PHP_URL_HOST)?:($_SERVER['HTTP_HOST']??'');$scheme=(!empty($_SERVER['HTTPS'])&&$_SERVER['HTTPS']!=='off')?'https':'http';$base=$scheme.'://'.($_SERVER['HTTP_HOST']??'localhost');$logoUrl=!empty($brand['logo_path'])?$base.'/'.ltrim($brand['logo_path'],'/'):'';$html=brandedEmailHtml($brand,$domain,$logoUrl,$body);
-            $interviewAt=($date&&$time)?$date.' '.$time.':00':null;$dedupe=hash('sha256',$user['id'].'|'.$profile.'|'.$subject.'|'.$html.'|'.$interviewAt.'|'.implode(',',$ids));$pdo->beginTransaction();$pdo->prepare("INSERT INTO email_batches(user_id,profile_id,subject,body,interview_at,timezone,recipient_count,status,dedupe_key) VALUES(?,?,?,?,?,?,?,'preview',?)")->execute([$user['id'],$profile,$subject,$html,$interviewAt,$timezone,count($recipients),$dedupe]);$batch=$pdo->lastInsertId();$ri=$pdo->prepare("INSERT INTO email_recipients(batch_id,candidate_id,email,status) VALUES(?,?,?,'preview')");foreach($recipients as $recipient)if($recipient['email'])$ri->execute([$batch,$recipient['id'],$recipient['email']]);$pdo->commit();$message='Branded HTML email preview saved for '.count($recipients).' candidates. Nothing was sent.';
+            $ids=array_values(array_unique(array_filter($_POST['candidate_ids']??[])));
+            $subject=trim($_POST['subject']??'');$body=trim($_POST['body']??'');
+            $date=trim($_POST['interview_date']??'');$time=trim($_POST['interview_time']??'');
+            $timezone=trim($_POST['timezone']??'Asia/Kolkata');
+            if(!$ids||!$subject||!$body)throw new RuntimeException('Select candidates and complete the preview.');
+            $marks=implode(',',array_fill(0,count($ids),'?'));
+            $s=$pdo->prepare("SELECT c.id,c.email FROM candidates c JOIN wishlist_items wi ON wi.candidate_id=c.id WHERE wi.profile_id=? AND wi.disposition='wishlist' AND c.id IN ($marks) AND NOT EXISTS(SELECT 1 FROM interview_invite_locks il WHERE il.profile_id=wi.profile_id AND il.candidate_id=c.id AND il.active=1)");
+            $s->execute(array_merge([$profile],$ids));
+            $recipients=$s->fetchAll();
+            if(count($recipients)!==count($ids))throw new RuntimeException('A selected candidate is unavailable or already invited.');
+            $domain=trim((string)($brand['domain']??''));
+            if($domain==='')$domain=parse_url((string)$pdo->query('SELECT public_url FROM jobs WHERE public_url IS NOT NULL LIMIT 1')->fetchColumn(),PHP_URL_HOST)?:($_SERVER['HTTP_HOST']??'');
+            $scheme=(!empty($_SERVER['HTTPS'])&&$_SERVER['HTTPS']!=='off')?'https':'http';
+            $base=$scheme.'://'.($_SERVER['HTTP_HOST']??'localhost');
+            $logoUrl=!empty($brand['logo_path'])?$base.'/'.ltrim($brand['logo_path'],'/'):'';
+            $html=brandedEmailHtml($brand,$domain,$logoUrl,$body);
+            $interviewAt=($date&&$time)?$date.' '.$time.':00':null;
+            $dedupe=hash('sha256',$user['id'].'|'.$profile.'|'.$subject.'|'.$html.'|'.$interviewAt.'|'.implode(',',$ids));
+            $pdo->beginTransaction();
+            $pdo->prepare("INSERT INTO email_batches(user_id,profile_id,subject,body,interview_at,timezone,recipient_count,status,dedupe_key) VALUES(?,?,?,?,?,?,?,'preview',?)")->execute([$user['id'],$profile,$subject,$html,$interviewAt,$timezone,count($recipients),$dedupe]);
+            $batch=$pdo->lastInsertId();
+            $ri=$pdo->prepare("INSERT INTO email_recipients(batch_id,candidate_id,email,status) VALUES(?,?,?,'preview')");
+            foreach($recipients as $recipient)if($recipient['email'])$ri->execute([$batch,$recipient['id'],$recipient['email']]);
+            $pdo->commit();
+            $message='Branded HTML email preview saved. Nothing was sent.';
         }
     }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();$error=str_contains($e->getMessage(),'Duplicate entry')?'This exact preview already exists.':$e->getMessage();}
 }
-$profilesStmt=$pdo->prepare('SELECT wp.*,COUNT(wi.id) total FROM wishlist_profiles wp LEFT JOIN wishlist_items wi ON wi.profile_id=wp.id WHERE wp.user_id=? GROUP BY wp.id ORDER BY wp.name');$profilesStmt->execute([$user['id']]);$profiles=$profilesStmt->fetchAll();$active=(int)($_GET['profile']??$_POST['profile_id']??($profiles[0]['id']??0));$activeName='';$activeProfile=null;foreach($profiles as $profileRow)if((int)$profileRow['id']===$active){$activeName=$profileRow['name'];$activeProfile=$profileRow;}
-$all=loadCandidateRecords();$eligible=array_values(array_filter($all,fn($candidate)=>(int)($candidate['job_id']??0)===(int)($activeProfile['job_id']??0)));$legacyLockStmt=$pdo->prepare('SELECT candidate_id FROM interview_invite_locks WHERE profile_id=? AND active=1');$legacyLockStmt->execute([$active]);$legacyLocks=array_fill_keys($legacyLockStmt->fetchAll(PDO::FETCH_COLUMN),true);$itemStmt=$pdo->prepare('SELECT candidate_id,disposition FROM wishlist_items WHERE profile_id=?');$itemStmt->execute([$active]);$statuses=[];foreach($itemStmt->fetchAll() as $row)$statuses[$row['candidate_id']]=$row['disposition'];$items=array_values(array_filter($eligible,fn($candidate)=>isset($statuses[$candidate['id']])));usort($items,fn($a,$b)=>(int)$b['job_match']['analyzed']<=>(int)$a['job_match']['analyzed']?:(($b['score']??-1)<=>($a['score']??-1)));
+
+// FETCH ALL PROFILES & CANDIDATES
+$profilesStmt=$pdo->prepare('SELECT wp.id, wp.user_id, wp.job_id, wp.name, wp.created_at, MAX(j.id) job_table_id, COUNT(wi.id) total FROM wishlist_profiles wp LEFT JOIN wishlist_items wi ON wi.profile_id=wp.id LEFT JOIN jobs j ON j.title=wp.name WHERE wp.user_id=? GROUP BY wp.id, wp.user_id, wp.job_id, wp.name, wp.created_at ORDER BY wp.name');
+$profilesStmt->execute([$user['id']]);
+$profiles=$profilesStmt->fetchAll();
+
+$allCandidates=loadCandidateRecords();
+$candidatesByJob=[];
+foreach($allCandidates as $c){
+    $jobId=(int)($c['job_id']??0);
+    $candidatesByJob[$jobId][]=$c;
+}
+
+// Build detailed profile data map
+$profileData=[];
+foreach($profiles as $prof){
+    $profId=(int)$prof['id'];
+    $jobTableId=(int)($prof['job_table_id']??0);
+    
+    // Eligible applicants for this role
+    $eligible=array_values(array_filter($allCandidates, function($cand) use ($prof, $jobTableId) {
+        if($jobTableId > 0 && (int)($cand['job_id']??0) === $jobTableId) return true;
+        return roleKey($cand['role_title']??'') === roleKey($prof['name']);
+    }));
+
+    // Wishlist items for this profile
+    $itemStmt=$pdo->prepare('SELECT candidate_id, disposition FROM wishlist_items WHERE profile_id=?');
+    $itemStmt->execute([$profId]);
+    $statuses=[];
+    foreach($itemStmt->fetchAll() as $row)$statuses[$row['candidate_id']]=$row['disposition'];
+
+    // Locked/invited candidates
+    $lockStmt=$pdo->prepare('SELECT candidate_id FROM interview_invite_locks WHERE profile_id=? AND active=1');
+    $lockStmt->execute([$profId]);
+    $locks=array_fill_keys($lockStmt->fetchAll(PDO::FETCH_COLUMN),true);
+
+    $items=array_values(array_filter($eligible,fn($cand)=>isset($statuses[$cand['id']])));
+    usort($items,fn($a,$b)=>(int)($b['job_match']['analyzed']??0)<=> (int)($a['job_match']['analyzed']??0)?:(($b['score']??-1)<=>($a['score']??-1)));
+
+    $profileData[$profId]=[
+        'profile'=>$prof,
+        'job_id'=>$jobTableId,
+        'eligible'=>$eligible,
+        'statuses'=>$statuses,
+        'locks'=>$locks,
+        'items'=>$items
+    ];
+}
+
+$activeFilter=(string)($_GET['filter']??'all');
 $domain=trim((string)($brand['domain']??''));if($domain==='')$domain=parse_url((string)$pdo->query('SELECT public_url FROM jobs WHERE public_url IS NOT NULL LIMIT 1')->fetchColumn(),PHP_URL_HOST)?:($_SERVER['HTTP_HOST']??'');
+
 $activePage='wishlist';$pageTitle='Wishlist · ResumeIQ';
-$pageStyles='<style>.job-switcher{display:grid;grid-template-columns:minmax(240px,1fr) auto auto;gap:10px;padding:14px;margin:12px 0;align-items:center}.job-switcher label{font-weight:700}.job-stat{padding:8px 12px;border-left:1px solid var(--line)}.job-stat strong{display:block;font-size:18px}.job-stat span{color:var(--muted);font-size:10px}.workspace-tabs{display:flex;gap:6px;padding:7px;margin-bottom:10px}.workspace-tab{border:0;border-radius:8px;padding:10px 15px;background:transparent;color:var(--muted);font-weight:700}.workspace-tab.active{background:var(--primary);color:#fff}.workspace-panel{display:none}.workspace-panel.active{display:block}.candidate-toolbar{padding:13px;margin-bottom:10px}.candidate-toolbar form{display:flex;gap:8px}.wish-list{padding:18px}.candidate{display:grid;grid-template-columns:28px minmax(0,1fr) 70px auto;gap:10px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line)}.candidate:last-child{border:0}.candidate strong{font-size:13px}.candidate p{color:var(--muted);margin:4px 0}.rank-label{color:var(--primary);font-weight:700;font-size:10px}.candidate-actions{display:flex;gap:6px}.mini{width:34px;height:34px;border:1px solid var(--line);border-radius:8px;background:#fff}.mini.danger{color:var(--danger);border-color:#ffd8df}.email-layout{display:grid;grid-template-columns:35fr 65fr;gap:10px}.composer,.rendered-preview{padding:20px}.composer label{display:block;margin:12px 0 6px;font-weight:700}.form-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.composer textarea{min-height:180px;line-height:1.6}.composer-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.recipient-summary{padding:10px;background:var(--primary-soft);border-radius:8px;color:var(--primary);margin-bottom:10px}.email-stage{background:#f0f2f7;border:1px solid var(--line);border-radius:10px;padding:26px;min-height:560px}.email-document{max-width:680px;margin:auto;background:#fff;border:1px solid #e4e3ec;border-radius:12px;overflow:hidden;box-shadow:0 18px 45px rgba(40,38,60,.08)}.email-brand{padding:25px 30px;background:linear-gradient(135deg,#faf9ff,#eeeaff)}.email-brand img{display:block;max-width:130px;max-height:54px}.email-brand strong{display:block;font-size:23px}.email-brand span{display:block;color:var(--muted);margin-top:7px}.email-subject{padding:20px 30px;border-bottom:1px solid var(--line);font-weight:800;font-size:18px}.email-body{padding:32px 30px;white-space:pre-line;line-height:1.75;min-height:220px}.email-footer{padding:17px 30px;border-top:1px solid var(--line);color:var(--muted);font-size:11px}.notice{padding:11px;border-radius:8px;margin:10px 0}.ok{background:var(--green-soft);color:var(--green)}.err{background:#fff1f3;color:var(--danger)}@media(max-width:980px){.email-layout{grid-template-columns:1fr}.email-stage{min-height:auto}.job-switcher{grid-template-columns:1fr 1fr}.job-switcher label{grid-column:1/-1}}@media(max-width:620px){.job-switcher,.candidate{grid-template-columns:1fr}.candidate-toolbar form,.form-pair{display:grid;grid-template-columns:1fr}.candidate-actions{justify-content:flex-start}}</style>';
+$pageStyles='<style>
+.page-head{padding:20px;display:flex;justify-content:space-between;align-items:center}
+.filter-bar{display:flex;gap:8px;padding:10px 14px;margin:14px 0;overflow-x:auto;align-items:center;background:#fff;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,0.03)}
+.filter-pill{padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;color:var(--muted);background:var(--bg);border:1px solid var(--line);text-decoration:none;transition:all 0.15s ease}
+.filter-pill:hover,.filter-pill.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.jobs-grid{display:flex;flex-direction:column;gap:18px;margin-top:14px}
+.job-card{background:#fff;border-radius:12px;border:1px solid var(--line);box-shadow:0 2px 12px rgba(0,0,0,0.03);overflow:hidden}
+.job-card-head{padding:16px 20px;background:linear-gradient(135deg,#faf9ff,#f4f0ff);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+.job-card-head h2{margin:0;font-size:16px;font-weight:800;color:var(--text)}
+.job-card-body{padding:18px}
+.candidate-table{width:100%;border-collapse:collapse}
+.candidate-row{display:grid;grid-template-columns:26px minmax(0,1.2fr) 90px 100px auto;gap:12px;align-items:center;padding:12px 6px;border-bottom:1px solid var(--line)}
+.candidate-row:last-child{border:0}
+.candidate-row strong{font-size:13px}
+.candidate-row small{color:var(--muted);display:block;font-size:11px}
+.rank-badge{color:var(--primary);font-size:10px;font-weight:800;background:var(--primary-soft);padding:2px 6px;border-radius:4px;display:inline-block}
+.status-pill{font-size:10px;font-weight:800;padding:3px 8px;border-radius:12px;text-transform:capitalize;display:inline-block}
+.status-pill.selected{background:var(--green-soft);color:var(--green)}
+.status-pill.wishlist{background:var(--primary-soft);color:var(--primary)}
+.status-pill.blacklisted{background:#fff1f3;color:var(--danger)}
+.status-pill.invited{background:#fff5e7;color:#8c610d}
+.actions-cell{display:flex;gap:6px;justify-content:flex-end}
+.mini-btn{width:32px;height:32px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer;display:grid;place-items:center;font-size:12px;color:var(--text);transition:all 0.15s ease}
+.mini-btn:hover{background:var(--bg);border-color:var(--muted)}
+.mini-btn.danger:hover{color:var(--danger);background:#fff1f3;border-color:#ffd8df}
+.add-toolbar{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center}
+.add-toolbar form{display:flex;gap:8px;flex:1}
+.notice{padding:12px 16px;border-radius:8px;margin:10px 0;font-weight:600}
+.ok{background:var(--green-soft);color:var(--green)}
+.err{background:#fff1f3;color:var(--danger)}
+@media(max-width:850px){.candidate-row{grid-template-columns:1fr;gap:6px;padding:14px 0}.actions-cell{justify-content:flex-start}.job-card-head{flex-direction:column;align-items:flex-start;gap:10px}}
+</style>';
 require __DIR__.'/views/partials/header.php';
 ?>
-<section class="page-head"><div><div class="kicker"><i class="fa-solid fa-heart"></i> Job-specific shortlist</div><h1>Wishlist & email</h1><p>Review candidates by job, remove bogus records, and preview branded email before saving.</p></div><form method="post" style="display:flex;gap:7px;position:relative;z-index:2"><input type="hidden" name="csrf" value="<?=csrfToken()?>"><input type="hidden" name="action" value="create_profile"><input class="control" name="profile_name" placeholder="New job profile" required><button class="btn">Create</button></form></section>
-<?php if($message):?><div class="notice ok"><?=htmlspecialchars($message)?></div><?php endif?><?php if($error):?><div class="notice err"><?=htmlspecialchars($error)?></div><?php endif?>
-<section class="panel job-switcher"><label>Job profile<select class="control" onchange="location.href='wishlist.php?profile='+this.value"><?php foreach($profiles as $profileRow):?><option value="<?=$profileRow['id']?>" <?=$active===(int)$profileRow['id']?'selected':''?>><?=htmlspecialchars(trim($profileRow['name']))?></option><?php endforeach?></select></label><div class="job-stat"><strong><?=(int)($activeProfile['total']??0)?></strong><span>Shortlisted</span></div><div class="job-stat"><strong><?=count($eligible)?></strong><span>Eligible resumes</span></div></section>
-<nav class="panel workspace-tabs"><button class="workspace-tab active" type="button" data-workspace="candidates"><i class="fa-solid fa-users"></i> Candidates</button><button class="workspace-tab" type="button" data-workspace="email"><i class="fa-solid fa-envelope-open-text"></i> Email composer & preview</button></nav>
-<section class="workspace-panel active" data-workspace-panel="candidates"><div class="panel candidate-toolbar"><form method="post"><input type="hidden" name="csrf" value="<?=csrfToken()?>"><input type="hidden" name="action" value="add"><input type="hidden" name="profile_id" value="<?=$active?>"><select class="control" name="candidate_id" required><option value="">Add <?=htmlspecialchars(trim($activeName))?> applicant…</option><?php foreach($eligible as $candidate):if(isset($statuses[$candidate['id']]))continue;$person=candidatePresentation($candidate);?><option value="<?=htmlspecialchars($candidate['id'])?>"><?=htmlspecialchars($person['name'])?> · <?=$candidate['job_match']['analyzed']?$candidate['score'].'%':'Needs analysis'?></option><?php endforeach?></select><button class="btn btn-primary"><i class="fa-solid fa-plus"></i>Add to wishlist</button></form></div><article class="panel wish-list"><h2><?=htmlspecialchars(trim($activeName)?:'Candidates')?></h2><?php if(!$items):?><div class="empty">No candidates in this shortlist yet.</div><?php endif?><form method="post" id="mailForm"><input type="hidden" name="csrf" value="<?=csrfToken()?>"><input type="hidden" name="action" value="email"><input type="hidden" name="profile_id" value="<?=$active?>"><?php foreach($items as $index=>$candidate):$person=candidatePresentation($candidate);$status=$statuses[$candidate['id']];?><div class="candidate"><input type="checkbox" name="candidate_ids[]" value="<?=htmlspecialchars($candidate['id'])?>" data-name="<?=htmlspecialchars($person['name'])?>" data-email="<?=htmlspecialchars($candidate['email']??'')?>" <?=$status!=='wishlist'?'disabled':''?>><div><strong><a href="candidate_detail.php?id=<?=urlencode($candidate['id'])?>"><?=htmlspecialchars($person['name'])?></a></strong><p><?=htmlspecialchars($person['role'])?> · <?=htmlspecialchars($candidate['email']??'No email')?> · <?=htmlspecialchars($status)?></p><span class="rank-label"><?=$index<5?'Primary '.($index+1):($index<10?'Substitute '.($index-4):'Reserve')?></span></div><span class="badge"><?=$candidate['job_match']['analyzed']?$candidate['score'].'%':'Needs analysis'?></span><div class="candidate-actions"><button class="mini" type="button" onclick="statusUpdate('<?=htmlspecialchars($candidate['id'])?>','selected')" title="Selected"><i class="fa-solid fa-check"></i></button><button class="mini" type="button" onclick="statusUpdate('<?=htmlspecialchars($candidate['id'])?>','blacklisted')" title="Blacklist"><i class="fa-solid fa-ban"></i></button><?php if($isOwner):?><button class="mini danger" type="button" onclick="deleteCandidate('<?=htmlspecialchars($candidate['id'])?>','<?=htmlspecialchars(addslashes($person['name']))?>')" title="Delete candidate and related data"><i class="fa-solid fa-trash"></i></button><?php endif?></div></div><?php endforeach?></form></article></section>
-<section class="workspace-panel" data-workspace-panel="email"><div class="email-layout"><aside class="panel composer"><h2>Email setup</h2><div class="recipient-summary"><strong id="recipientCount">0 selected</strong><br><span id="recipientName">Select candidates from the Candidates tab.</span></div><label>Subject</label><input class="control preview-input" form="mailForm" id="emailSubject" name="subject" value="Interview invitation — <?=htmlspecialchars(trim($activeName))?>" required><div class="form-pair"><div><label>Date</label><input class="control preview-input" form="mailForm" id="interviewDate" type="date" name="interview_date"></div><div><label>Time</label><input class="control preview-input" form="mailForm" id="interviewTime" type="time" name="interview_time"></div></div><label>Timezone</label><select class="control preview-input" form="mailForm" id="interviewTimezone" name="timezone"><option>Asia/Kolkata</option><option>UTC</option></select><label>Message</label><textarea class="control preview-input" form="mailForm" id="emailMessage" name="body" required>Hello {{candidate_name}},
 
-Thank you for your interest in the {{job_title}} role. We would like to invite you for an interview on {{interview_date}} at {{interview_time}} ({{timezone}}).
+<section class="page-head">
+  <div>
+    <div class="kicker"><i class="fa-solid fa-heart"></i> Job-specific shortlist</div>
+    <h1>Wishlist & Shortlists</h1>
+    <p class="muted">Review shortlisted candidates across all job profiles at a glance and jump straight to interview outreach.</p>
+  </div>
+  <form method="post" style="display:flex;gap:8px">
+    <input type="hidden" name="csrf" value="<?=csrfToken()?>">
+    <input type="hidden" name="action" value="create_profile">
+    <input class="control" name="profile_name" placeholder="New job profile title" required style="width:200px">
+    <button class="btn btn-primary"><i class="fa-solid fa-plus"></i> Create Profile</button>
+  </form>
+</section>
 
-Please reply to confirm your availability.
+<?php if($message):?><div class="notice ok"><?=htmlspecialchars($message)?></div><?php endif?>
+<?php if($error):?><div class="notice err"><?=htmlspecialchars($error)?></div><?php endif?>
 
-Regards,
-Hiring Team</textarea><div class="composer-actions"><button class="btn" type="button" id="selectPrimary"><i class="fa-solid fa-user-check"></i>Select primary 5</button><button class="btn btn-primary" form="mailForm"><i class="fa-solid fa-floppy-disk"></i>Save HTML preview</button></div><small>Preview only. Saving does not send an email.</small></aside><article class="panel rendered-preview"><h2>Rendered email preview</h2><div class="email-stage"><div class="email-document"><header class="email-brand"><?php if(!empty($brand['logo_path'])):?><img src="<?=htmlspecialchars($brand['logo_path'])?>" alt="<?=htmlspecialchars($brand['name'])?>"><?php else:?><strong><?=htmlspecialchars($brand['name'])?></strong><?php endif?><span><?=htmlspecialchars($domain)?></span></header><div class="email-subject" id="previewSubject"></div><div class="email-body" id="previewBody"></div><footer class="email-footer"><?=htmlspecialchars($brand['name'])?> · <?=htmlspecialchars($domain)?></footer></div></div></article></div></section>
-<form method="post" id="statusForm" hidden><input type="hidden" name="csrf" value="<?=csrfToken()?>"><input type="hidden" name="action" value="status"><input type="hidden" name="profile_id" value="<?=$active?>"><input name="candidate_id"><input name="status"></form>
-<?php if($isOwner):?><form method="post" action="candidate_delete.php" id="deleteForm" hidden><input type="hidden" name="csrf" value="<?=csrfToken()?>"><input type="hidden" name="profile_id" value="<?=$active?>"><input name="candidate_id"></form><?php endif?>
+<!-- TOP FILTER PILLS -->
+<div class="filter-bar">
+  <span style="font-size:11px;font-weight:700;color:var(--muted);margin-right:4px"><i class="fa-solid fa-filter"></i> Filter:</span>
+  <a href="wishlist.php?filter=all" class="filter-pill <?=$activeFilter==='all'?'active':''?>">
+    All Job Profiles (<?=count($profiles)?>)
+  </a>
+  <?php foreach($profiles as $p): ?>
+  <a href="wishlist.php?filter=<?=$p['id']?>" class="filter-pill <?=$activeFilter===(string)$p['id']?'active':''?>">
+    <?=htmlspecialchars(trim($p['name']))?> (<?=(int)$p['total']?>)
+  </a>
+  <?php endforeach; ?>
+</div>
+
+<!-- MULTI-JOB SHORTLIST CARDS GRID -->
+<div class="jobs-grid">
+  <?php 
+  $displayProfiles = $profiles;
+  if($activeFilter !== 'all'){
+    $displayProfiles = array_filter($profiles, fn($p)=>(string)$p['id']===$activeFilter);
+  }
+
+  if(empty($displayProfiles)):
+  ?>
+  <div class="panel" style="padding:30px;text-align:center;color:var(--muted)">
+    No job profiles created yet. Use the <strong>Create Profile</strong> form above to get started.
+  </div>
+  <?php endif; ?>
+
+  <?php foreach($displayProfiles as $pRow): 
+    $profId = (int)$pRow['id'];
+    $data = $profileData[$profId];
+    $items = $data['items'];
+    $eligible = $data['eligible'];
+    $statuses = $data['statuses'];
+    $locks = $data['locks'];
+    $jobTableId = $data['job_id'];
+  ?>
+  <article class="job-card">
+    <div class="job-card-head">
+      <div>
+        <h2><?=htmlspecialchars(trim($pRow['name']))?></h2>
+        <small class="muted"><?=count($items)?> shortlisted · <?=count($eligible)?> eligible applicants</small>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <?php if($jobTableId > 0): ?>
+        <a href="interview_invite.php?job_id=<?=$jobTableId?>" class="btn btn-primary" style="height:36px;font-size:11px">
+          <i class="fa-solid fa-paper-plane"></i> Send Invitations
+        </a>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <div class="job-card-body">
+      <?php if(empty($items)): ?>
+      <div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">
+        No candidates added to this shortlist yet. Select an applicant below to add.
+      </div>
+      <?php else: ?>
+      <div class="candidate-table">
+        <?php foreach($items as $index=>$candidate): 
+          $person = candidatePresentation($candidate);
+          $status = $statuses[$candidate['id']] ?? 'wishlist';
+          $isInvited = isset($locks[$candidate['id']]);
+        ?>
+        <div class="candidate-row" style="<?=$isInvited?'opacity:0.6;':''?>">
+          <span class="rank-badge">#<?=$index+1?></span>
+          <span>
+            <strong>
+              <a href="candidate_detail.php?id=<?=urlencode($candidate['id'])?>" target="_blank" style="color:var(--text);text-decoration:none">
+                <?=htmlspecialchars($person['name'])?>
+              </a>
+              <a href="candidate_detail.php?id=<?=urlencode($candidate['id'])?>" target="_blank" title="Open candidate profile" style="color:var(--primary);margin-left:4px">
+                <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px"></i>
+              </a>
+            </strong>
+            <small><?=htmlspecialchars($candidate['email']??'No email')?> · <?=htmlspecialchars($person['role'])?></small>
+          </span>
+          <span class="badge" style="font-weight:800"><?=$candidate['job_match']['analyzed']?$candidate['score'].'%':'—'?></span>
+          <div>
+            <?php if($isInvited): ?>
+              <span class="status-pill invited"><i class="fa-solid fa-envelope"></i> Invited</span>
+            <?php else: ?>
+              <span class="status-pill <?=htmlspecialchars($status)?>"><?=htmlspecialchars($status)?></span>
+            <?php endif; ?>
+          </div>
+          <div class="actions-cell">
+            <button class="mini-btn" type="button" onclick="statusUpdate(<?=$profId?>,'<?=htmlspecialchars($candidate['id'])?>','selected')" title="Mark Selected">
+              <i class="fa-solid fa-check" style="color:var(--green)"></i>
+            </button>
+            <button class="mini-btn" type="button" onclick="statusUpdate(<?=$profId?>,'<?=htmlspecialchars($candidate['id'])?>','wishlist')" title="Keep Wishlist">
+              <i class="fa-solid fa-heart" style="color:var(--primary)"></i>
+            </button>
+            <button class="mini-btn" type="button" onclick="statusUpdate(<?=$profId?>,'<?=htmlspecialchars($candidate['id'])?>','blacklisted')" title="Blacklist">
+              <i class="fa-solid fa-ban" style="color:var(--danger)"></i>
+            </button>
+            <?php if($isOwner): ?>
+            <button class="mini-btn danger" type="button" onclick="deleteCandidate(<?=$profId?>,'<?=htmlspecialchars($candidate['id'])?>','<?=htmlspecialchars(addslashes($person['name']))?>')" title="Delete Candidate">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+            <?php endif; ?>
+          </div>
+        </div>
+        <?php endforeach; ?>
+      </div>
+      <?php endif; ?>
+
+      <!-- QUICK ADD APPLICANT FORM -->
+      <div class="add-toolbar">
+        <form method="post">
+          <input type="hidden" name="csrf" value="<?=csrfToken()?>">
+          <input type="hidden" name="action" value="add">
+          <input type="hidden" name="profile_id" value="<?=$profId?>">
+          <select class="control" name="candidate_id" required style="font-size:12px">
+            <option value="">Add applicant to <?=htmlspecialchars(trim($pRow['name']))?> shortlist…</option>
+            <?php foreach($eligible as $cand): 
+              if(isset($statuses[$cand['id']])) continue;
+              $pInfo = candidatePresentation($cand);
+            ?>
+            <option value="<?=htmlspecialchars($cand['id'])?>"><?=htmlspecialchars($pInfo['name'])?> · <?=$cand['job_match']['analyzed']?$cand['score'].'%':'Needs analysis'?></option>
+            <?php endforeach; ?>
+          </select>
+          <button class="btn btn-primary" style="font-size:11px;white-space:nowrap"><i class="fa-solid fa-plus"></i> Add to shortlist</button>
+        </form>
+      </div>
+    </div>
+  </article>
+  <?php endforeach; ?>
+</div>
+
+<form method="post" id="statusForm" hidden>
+  <input type="hidden" name="csrf" value="<?=csrfToken()?>">
+  <input type="hidden" name="action" value="status">
+  <input type="hidden" name="profile_id" id="statusProfileId">
+  <input name="candidate_id" id="statusCandidateId">
+  <input name="status" id="statusValue">
+</form>
+
+<?php if($isOwner): ?>
+<form method="post" action="candidate_delete.php" id="deleteForm" hidden>
+  <input type="hidden" name="csrf" value="<?=csrfToken()?>">
+  <input type="hidden" name="profile_id" id="deleteProfileId">
+  <input name="candidate_id" id="deleteCandidateId">
+</form>
+<?php endif; ?>
+
 <script>
-const workspaceTabs=document.querySelectorAll('.workspace-tab');workspaceTabs.forEach(tab=>tab.onclick=()=>{workspaceTabs.forEach(x=>x.classList.remove('active'));tab.classList.add('active');document.querySelectorAll('[data-workspace-panel]').forEach(panel=>panel.classList.toggle('active',panel.dataset.workspacePanel===tab.dataset.workspace));if(tab.dataset.workspace==='email')renderEmailPreview()});
-function statusUpdate(id,status){const form=document.getElementById('statusForm');form.candidate_id.value=id;form.status.value=status;form.submit()}
-function deleteCandidate(id,name){if(!confirm('Permanently delete '+name+' and related wishlist/email records? This cannot be undone.'))return;const form=document.getElementById('deleteForm');form.candidate_id.value=id;form.submit()}
-const selectedCandidates=()=>[...document.querySelectorAll('#mailForm [name="candidate_ids[]"]:checked')];
-function renderEmailPreview(){const selected=selectedCandidates(),candidate=selected[0]?.dataset.name||'Candidate',date=document.getElementById('interviewDate').value||'the scheduled date',time=document.getElementById('interviewTime').value||'the scheduled time',timezone=document.getElementById('interviewTimezone').value,job=<?=json_encode(trim($activeName))?>;document.getElementById('recipientCount').textContent=selected.length+' selected';document.getElementById('recipientName').textContent=selected.length?(selected.length===1?candidate:selected[0].dataset.name+' and '+(selected.length-1)+' more'):'Select candidates from the Candidates tab.';document.getElementById('previewSubject').textContent=document.getElementById('emailSubject').value||'Email subject';let body=document.getElementById('emailMessage').value;body=body.replaceAll('{{candidate_name}}',candidate).replaceAll('{{job_title}}',job).replaceAll('{{interview_date}}',date).replaceAll('{{interview_time}}',time).replaceAll('{{timezone}}',timezone);document.getElementById('previewBody').textContent=body}
-document.querySelectorAll('.preview-input,#mailForm [name="candidate_ids[]"]').forEach(input=>input.addEventListener('input',renderEmailPreview));document.getElementById('selectPrimary').onclick=()=>{document.querySelectorAll('#mailForm [name="candidate_ids[]"]:not(:disabled)').forEach((box,index)=>box.checked=index<5);renderEmailPreview()};renderEmailPreview();
+function statusUpdate(profileId, candidateId, status){
+  document.getElementById('statusProfileId').value = profileId;
+  document.getElementById('statusCandidateId').value = candidateId;
+  document.getElementById('statusValue').value = status;
+  document.getElementById('statusForm').submit();
+}
+
+function deleteCandidate(profileId, candidateId, name){
+  if(!confirm('Permanently delete '+name+' and related wishlist/email records? This cannot be undone.')) return;
+  document.getElementById('deleteProfileId').value = profileId;
+  document.getElementById('deleteCandidateId').value = candidateId;
+  document.getElementById('deleteForm').submit();
+}
 </script>
-<script>const legacyLocked=<?=json_encode(array_keys($legacyLocks))?>;legacyLocked.forEach(id=>{const box=document.querySelector('#mailForm [name="candidate_ids[]"][value="'+CSS.escape(id)+'"]');if(box){box.checked=false;box.disabled=true;box.closest('.candidate')?.setAttribute('style','opacity:.5');box.closest('.candidate')?.querySelector('p')?.insertAdjacentHTML('beforeend',' · Interview invited')}});renderEmailPreview();</script>
-<?php require __DIR__.'/views/partials/footer.php';?>
+
+<?php require __DIR__.'/views/partials/footer.php'; ?>
