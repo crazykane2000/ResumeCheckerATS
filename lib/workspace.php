@@ -14,38 +14,144 @@ function saveWorkspaceData(string $file, array $data): void {
     file_put_contents($dir . '/' . $file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
 }
 function analyzeExperienceTimeline(string $text, array $skills): array {
-    $months = ['jan'=>1,'feb'=>2,'mar'=>3,'apr'=>4,'may'=>5,'jun'=>6,'jul'=>7,'aug'=>8,'sep'=>9,'oct'=>10,'nov'=>11,'dec'=>12];
+    $monthsMap = ['jan'=>1,'feb'=>2,'mar'=>3,'apr'=>4,'may'=>5,'jun'=>6,'jul'=>7,'aug'=>8,'sep'=>9,'oct'=>10,'nov'=>11,'dec'=>12];
+    
+    // Isolate WORK EXPERIENCE section if present to avoid capturing education/projects/achievements dates
+    $targetText = $text;
+    if (preg_match('/(?:WORK EXPERIENCE|EMPLOYMENT HISTORY|PROFESSIONAL EXPERIENCE|EXPERIENCE)\b/i', $text, $secMatch, PREG_OFFSET_CAPTURE)) {
+        $startPos = $secMatch[0][1];
+        $subText = substr($text, $startPos);
+        if (preg_match('/\n\s*(?:EDUCATION|SKILLS|PERSONAL PROJECTS|PROJECTS|ACHIEVEMENTS|LANGUAGES|CERTIFICATIONS|INTERESTS|DECLARATION)\b/i', $subText, $endMatch, PREG_OFFSET_CAPTURE)) {
+            $targetText = substr($subText, 0, $endMatch[0][1]);
+        } else {
+            $targetText = $subText;
+        }
+    }
+
     $pattern = '/\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?|0?[1-9]|1[0-2])\s*[\/.\- ]\s*(20\d{2}|19\d{2})\s*(?:-|–|—|to)\s*(?:(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?|0?[1-9]|1[0-2])\s*[\/.\- ]\s*(20\d{2}|19\d{2})|Present|Current|Ongoing|Till Date)/i';
-    preg_match_all($pattern, $text, $matches, PREG_OFFSET_CAPTURE);
-    $jobs=[]; $now=new DateTimeImmutable('first day of this month');
-    foreach ($matches[0] as $i=>$full) {
+    
+    preg_match_all($pattern, $targetText, $matches, PREG_OFFSET_CAPTURE);
+    $jobs = [];
+    $now = new DateTimeImmutable('first day of this month');
+
+    foreach ($matches[0] as $i => $full) {
         $m1Str = $matches[1][$i][0];
-        $sm = is_numeric($m1Str) ? (int)$m1Str : ($months[strtolower(substr($m1Str,0,3))]??1);
         $sy = (int)$matches[2][$i][0];
+        $sm = is_numeric($m1Str) ? (int)$m1Str : ($monthsMap[strtolower(substr($m1Str,0,3))] ?? 1);
         $start = (new DateTimeImmutable())->setDate($sy, max(1, min(12, $sm)), 1)->setTime(0,0);
+
         if (!empty($matches[4][$i][0])) {
             $m2Str = $matches[3][$i][0];
-            $em = is_numeric($m2Str) ? (int)$m2Str : ($months[strtolower(substr($m2Str,0,3))]??1);
             $ey = (int)$matches[4][$i][0];
+            $em = is_numeric($m2Str) ? (int)$m2Str : ($monthsMap[strtolower(substr($m2Str,0,3))] ?? 1);
             $end = (new DateTimeImmutable())->setDate($ey, max(1, min(12, $em)), 1)->modify('last day of this month')->setTime(0,0);
         } else {
             $end = $now;
         }
+
         if ($end < $start) continue;
-        $next=$matches[0][$i+1][1]??min(strlen($text),$full[1]+900); $block=substr($text,$full[1],max(0,$next-$full[1]));
-        $duration=max(1,($end->format('Y')-$start->format('Y'))*12+(int)$end->format('n')-(int)$start->format('n')+1);
-        $used=[]; foreach($skills as $skill) if(stripos($block,$skill)!==false) $used[]=$skill;
-        $jobs[]=['label'=>trim(preg_replace('/\s+/',' ',substr($block,0,120))),'start'=>$start->format('Y-m'),'end'=>$end===$now?'Present':$end->format('Y-m'),'start_ts'=>$start->getTimestamp(),'end_ts'=>$end->getTimestamp(),'months'=>$duration,'skills'=>$used];
+
+        // Clean label extraction from preceding lines
+        $beforeMatchText = substr($targetText, 0, $full[1]);
+        $precedingLines = array_values(array_filter(array_map('trim', preg_split('/\R/', $beforeMatchText))));
+        $label = '';
+        if (count($precedingLines) >= 2) {
+            $l1 = $precedingLines[count($precedingLines)-2];
+            $l2 = $precedingLines[count($precedingLines)-1];
+            if (!preg_match('/WORK EXPERIENCE|EMPLOYMENT|EDUCATION|SKILLS|PROJECTS|ACHIEVEMENTS/i', $l1) && mb_strlen($l1) < 80) {
+                $label = $l1;
+            }
+            if (!preg_match('/WORK EXPERIENCE|EMPLOYMENT|EDUCATION|SKILLS|PROJECTS|ACHIEVEMENTS/i', $l2) && mb_strlen($l2) < 80) {
+                $label = $label ? ($label . ' — ' . $l2) : $l2;
+            }
+        } elseif (count($precedingLines) === 1) {
+            $l0 = $precedingLines[0];
+            if (!preg_match('/WORK EXPERIENCE|EMPLOYMENT|EDUCATION|SKILLS|PROJECTS|ACHIEVEMENTS/i', $l0) && mb_strlen($l0) < 80) {
+                $label = $l0;
+            }
+        }
+
+        if (empty($label)) {
+            $label = 'Work Experience Role (' . $start->format('Y-m') . ')';
+        }
+
+        $next = $matches[0][$i+1][1] ?? min(strlen($targetText), $full[1]+600);
+        $block = substr($targetText, $full[1], max(0, $next - $full[1]));
+        $duration = max(1, ($end->format('Y') - $start->format('Y')) * 12 + (int)$end->format('n') - (int)$start->format('n') + 1);
+
+        $used = [];
+        foreach ($skills as $skill) {
+            if (trim($skill) !== '' && stripos($block, $skill) !== false) {
+                $used[] = $skill;
+            }
+        }
+
+        $jobs[] = [
+            'label' => $label,
+            'start' => $start->format('Y-m'),
+            'end'   => $end === $now ? 'Present' : $end->format('Y-m'),
+            'start_ts' => $start->getTimestamp(),
+            'end_ts'   => $end->getTimestamp(),
+            'months'   => $duration,
+            'skills'   => array_values(array_unique($used))
+        ];
     }
-    usort($jobs,fn($a,$b)=>$a['start_ts']<=>$b['start_ts']);
-    $gaps=[]; $merged=[];
-    foreach($jobs as $job){ if(!$merged||$job['start_ts']>$merged[count($merged)-1][1]+2678400){$merged[]=[$job['start_ts'],$job['end_ts']];}else{$merged[count($merged)-1][1]=max($merged[count($merged)-1][1],$job['end_ts']);} }
-    for($i=1;$i<count($merged);$i++){ $monthsGap=(int)round(($merged[$i][0]-$merged[$i-1][1])/2629800)-1; if($monthsGap>=2)$gaps[]=['months'=>$monthsGap,'after'=>date('Y-m',$merged[$i-1][1]),'before'=>date('Y-m',$merged[$i][0])]; }
-    $totalMonths=0; foreach($merged as $range)$totalMonths+=(int)round(($range[1]-$range[0])/2629800)+1;
-    $skillRanges=[]; foreach($jobs as $job)foreach($job['skills'] as $skill)$skillRanges[$skill][]=[$job['start_ts'],$job['end_ts']];
-    $skillMonths=[]; foreach($skillRanges as $skill=>$ranges){$skillMonths[$skill]=0;usort($ranges,fn($a,$b)=>$a[0]<=>$b[0]);$combined=[];foreach($ranges as $range){if(!$combined||$range[0]>$combined[count($combined)-1][1]+2678400)$combined[]=$range;else $combined[count($combined)-1][1]=max($combined[count($combined)-1][1],$range[1]);}foreach($combined as $range)$skillMonths[$skill]+=(int)round(($range[1]-$range[0])/2629800)+1;}
+
+    usort($jobs, fn($a, $b) => $a['start_ts'] <=> $b['start_ts']);
+    $gaps = [];
+    $merged = [];
+    foreach ($jobs as $job) {
+        if (!$merged || $job['start_ts'] > $merged[count($merged)-1][1] + 2678400) {
+            $merged[] = [$job['start_ts'], $job['end_ts']];
+        } else {
+            $merged[count($merged)-1][1] = max($merged[count($merged)-1][1], $job['end_ts']);
+        }
+    }
+
+    for ($i = 1; $i < count($merged); $i++) {
+        $monthsGap = (int)round(($merged[$i][0] - $merged[$i-1][1]) / 2629800) - 1;
+        if ($monthsGap >= 2) {
+            $gaps[] = ['months' => $monthsGap, 'after' => date('Y-m', $merged[$i-1][1]), 'before' => date('Y-m', $merged[$i][0])];
+        }
+    }
+
+    $totalMonths = 0;
+    foreach ($merged as $range) {
+        $totalMonths += (int)round(($range[1] - $range[0]) / 2629800) + 1;
+    }
+
+    $skillRanges = [];
+    foreach ($jobs as $job) {
+        foreach ($job['skills'] as $skill) {
+            $skillRanges[$skill][] = [$job['start_ts'], $job['end_ts']];
+        }
+    }
+
+    $skillMonths = [];
+    foreach ($skillRanges as $skill => $ranges) {
+        $skillMonths[$skill] = 0;
+        usort($ranges, fn($a, $b) => $a[0] <=> $b[0]);
+        $combined = [];
+        foreach ($ranges as $range) {
+            if (!$combined || $range[0] > $combined[count($combined)-1][1] + 2678400) {
+                $combined[] = $range;
+            } else {
+                $combined[count($combined)-1][1] = max($combined[count($combined)-1][1], $range[1]);
+            }
+        }
+        foreach ($combined as $range) {
+            $skillMonths[$skill] += (int)round(($range[1] - $range[0]) / 2629800) + 1;
+        }
+    }
     arsort($skillMonths);
-    return ['jobs'=>$jobs,'gaps'=>$gaps,'total_months'=>$totalMonths,'skill_months'=>$skillMonths,'confidence'=>count($jobs)?'estimated_from_dated_roles':'insufficient_dated_roles'];
+
+    return [
+        'jobs' => $jobs,
+        'gaps' => $gaps,
+        'total_months' => $totalMonths,
+        'skill_months' => $skillMonths,
+        'confidence' => count($jobs) ? 'estimated_from_dated_roles' : 'insufficient_dated_roles'
+    ];
 }
 function saveCandidateRecord(array $result, ?int $jobId = null): void {
     $items=workspaceData('candidates.json',[]);

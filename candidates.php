@@ -346,7 +346,7 @@ require __DIR__.'/views/partials/header.php';
                                     <td><strong><?=htmlspecialchars($candidate['stage'])?></strong></td>
                                     <td><span class="rank"><?=$i<5?'TOP '.($i+1):'RESERVE '.($i-4)?></span></td>
                                     <td class="experience-cell"><?=$months?round($months/12,1).' yrs':'Uncertain'?></td>
-                                    <td class="score-cell"><?php if(!empty($candidate['analysis']['requires_ocr'])||($candidate['analysis']['processing_status']??'')==='requires_ocr'):?><span class="score" style="color:#8c610d;background:#fff5e7;padding:3px 7px;border-radius:5px;font-size:10px;font-weight:700">Needs OCR</span><?php else:?><span class="score"><?=$candidate['analyzed']?$candidate['job_score'].'%':'Needs analysis'?></span><?php endif?></td>
+                                    <td class="score-cell"><?php if(!empty($candidate['analysis']['requires_ocr'])||($candidate['analysis']['processing_status']??'')==='requires_ocr'):?><span class="score" style="color:#8c610d;background:#fff5e7;padding:3px 7px;border-radius:5px;font-size:10px;font-weight:700">Needs OCR</span><?php elseif($candidate['analyzed']):?><span class="score"><?=$candidate['job_score']?>%</span><?php elseif(!empty($candidate['legacy_score']) && $candidate['legacy_score'] > 0):?><span class="score"><?=$candidate['legacy_score']?>%</span><?php else:?><span class="score" style="color:#4338ca;background:#e0e7ff;padding:3px 8px;border-radius:5px;font-size:11px;font-weight:700">Indexed</span><?php endif?></td>
                                     <td style="white-space:nowrap">
                                         <?php if($candidate['old']):?>
                                             <span class="old-label"><i class="fa-solid fa-triangle-exclamation"></i> Old application</span>
@@ -445,8 +445,8 @@ function openCandidate(id){
     if(drawerName)drawerName.textContent=c.name;
     if(drawerRole)drawerRole.textContent=c.job+' · '+c.stage;
     if(drawerRank)drawerRank.innerHTML=c.old?'<span class="old-label"><i class="fa-solid fa-triangle-exclamation"></i> 🚩 Old Application · '+esc(c.age)+'</span>':'Applied '+esc(c.age);
-    if(gaugeValue)gaugeValue.textContent=c.analyzed?c.score+'/100':'Needs analysis';
-    if(gaugeNeedle)gaugeNeedle.style.setProperty('--needle',(-180+(c.analyzed?c.score:0)*1.8)+'deg');
+    if(gaugeValue)gaugeValue.textContent=c.analyzed?c.score+'/100':(c.score>0?c.score+'/100':'Indexed');
+    if(gaugeNeedle)gaugeNeedle.style.setProperty('--needle',(-180+(c.analyzed?c.score:(c.score||50))*1.8)+'deg');
 
     const oldFlagBox=c.old?`<div class="gap-highlight old-flag" style="margin-bottom:14px"><i class="fa-solid fa-triangle-exclamation"></i><div><strong>OLD APPLICATION FLAG (6+ months old)</strong><br><small>Candidate registered ${esc(c.age)} (${esc(c.created_at)}). Details may be stale.</small></div></div>`:'';
 
