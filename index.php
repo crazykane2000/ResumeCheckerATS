@@ -75,6 +75,52 @@ function extractPdfText(string $file): array {
     // Check for scanned / image-only PDF
     if (empty($text) || mb_strlen($text) < 40) {
         $requiresOcr = true;
+
+        if (function_exists('curl_init')) {
+            $apiKey = 'K83173654988957';
+            $endpoint = 'https://api.ocr.space/parse/image';
+            try {
+                $post = [
+                    'file' => new CURLFile($file, 'application/pdf', basename($file)),
+                    'language' => 'eng',
+                    'isOverlayRequired' => 'false',
+                    'detectOrientation' => 'true',
+                    'scale' => 'true',
+                    'OCREngine' => '2',
+                ];
+                $ch = curl_init($endpoint);
+                curl_setopt_array($ch, [
+                    CURLOPT_POST => true,
+                    CURLOPT_POSTFIELDS => $post,
+                    CURLOPT_HTTPHEADER => ['apikey: ' . $apiKey],
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_CONNECTTIMEOUT => 15,
+                    CURLOPT_TIMEOUT => 60,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                ]);
+                $body = curl_exec($ch);
+                curl_close($ch);
+                if ($body !== false) {
+                    $json = json_decode($body, true);
+                    if (is_array($json) && empty($json['IsErroredOnProcessing'])) {
+                        $pages = [];
+                        foreach (($json['ParsedResults'] ?? []) as $page) {
+                            if (!empty($page['ParsedText'])) {
+                                $pages[] = $page['ParsedText'];
+                            }
+                        }
+                        $ocrText = cleanText(implode("\n\n", $pages));
+                        if (mb_strlen($ocrText) >= 30) {
+                            $text = $ocrText;
+                            $requiresOcr = false;
+                            $error = null;
+                        }
+                    }
+                }
+            } catch (Throwable $ocrError) {
+                // Soft fallback to requiresOcr = true if API is unreachable
+            }
+        }
         if (!$error) {
             $error = 'Scanned / image-only PDF detected. It contains very little or no selectable text and requires OCR processing.';
         }
