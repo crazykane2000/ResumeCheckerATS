@@ -323,7 +323,7 @@ require __DIR__.'/views/partials/header.php';
                                         <input class="select-box" type="checkbox" name="candidate_ids[]" value="<?=htmlspecialchars($candidate['id'])?>" <?=($favourites[$candidate['id']]??'')==='wishlist'?'checked':''?> <?=$locked?'disabled':''?> onclick="event.stopPropagation()">
                                     </td>
                                     <td class="candidate-name">
-                                        <strong><?=htmlspecialchars($candidate['name'])?></strong>
+                                        <strong><?=htmlspecialchars($candidate['name'])?> <a href="candidate_detail.php?id=<?=urlencode($candidate['id'])?>" target="_blank" onclick="event.stopPropagation()" title="Open full profile details in candidate_detail.php" style="color:var(--primary);text-decoration:none;margin-left:4px"><i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px"></i></a></strong>
                                         <small><?=htmlspecialchars($candidate['email']?:'No email')?></small>
                                     </td>
                                     <td><?=htmlspecialchars($candidate['job_title'])?></td>

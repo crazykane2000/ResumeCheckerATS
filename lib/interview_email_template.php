@@ -7,5 +7,5 @@ function noncebloxInterviewEmailHtml(string $candidate,string $job,string $date,
     $source=$bookingUrl!==''?str_replace('mailto:?subject=Interview Confirmation - {{job_title}}','{{booking_url}}',$template):$template;
     $source=str_replace(['NONCEBLOX','NonceBlox','ResumeIQ'],[strtoupper($brandName),$safe($brandName),$safe($brandName)],$source);
     $rendered=str_replace(['{{candidate_name}}','{{job_title}}','{{interview_date}}','{{interview_time}}','{{timezone}}','{{booking_url}}'],[$safe($candidate),$safe($job),$safe($date),$safe($time),$safe($timezone),$safe($bookingUrl)],$source);
-    return str_replace(['Confirm by Replying &nbsp;â†’','Confirm by Replying &nbsp;→'],'Choose interview slot',$rendered);
+    return str_replace(['Confirm by Replying &nbsp;â†’','Confirm by Replying &nbsp;→','â†’','â€¢','Â©','Â·'],['Confirm by Replying','Confirm by Replying','','&bull;','&copy;','&bull;'],$rendered);
 }
