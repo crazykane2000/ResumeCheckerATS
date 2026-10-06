@@ -324,6 +324,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $requiresOcr = $extraction['requires_ocr'];
             $extractionError = $extraction['error'];
 
+            $detectedSkills = extractDetectedSkills($extractedText);
+            $email = extractEmail($extractedText);
+            $phone = extractPhone($extractedText);
+            $experience = analyzeExperienceTimeline($extractedText, $detectedSkills);
+
+            $resObjTemp = [
+                'extracted_text' => $extractedText,
+                'name' => '',
+                'stored_filename' => $storedName
+            ];
+            $candPresentation = candidatePresentation($resObjTemp);
+            $candName = $candPresentation['name'];
+
+            // STRICT VALIDATION FOR UNFIT / EMPTY DOCUMENTS
+            if (mb_strlen($extractedText) < 30 || ($candName === 'Unknown candidate' && empty($email) && empty($phone))) {
+                @unlink($targetFile); // Remove unparseable upload file
+                $batchSummary[] = [
+                    'file'   => $originalName,
+                    'status' => 'unfit',
+                    'msg'    => 'Unfit / Empty Document (No readable candidate text or contact info found. Skipped from DB)'
+                ];
+                continue;
+            }
+
             $processingStatus = 'processed';
             if ($requiresOcr) {
                 $processingStatus = 'requires_ocr';
@@ -332,10 +356,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             [$score, $matched, $missing, $jdTokens] = basicMatch($jd, $extractedText);
-            $detectedSkills = extractDetectedSkills($extractedText);
-            $email = extractEmail($extractedText);
-            $phone = extractPhone($extractedText);
-            $experience = analyzeExperienceTimeline($extractedText, $detectedSkills);
 
             $resObj = [
                 'original_filename' => $originalName,
@@ -397,8 +417,9 @@ $pageStyles = '<style>
 .job-select-toolbar { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
 
 .batch-results-card { background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; color: #065f46; font-size: 13px; }
-.batch-results-list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
-.batch-item { display: flex; justify-content: space-between; background: #fff; padding: 8px 12px; border-radius: 8px; border: 1px solid #d1fae5; }
+.batch-results-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.batch-item { display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 10px 14px; border-radius: 8px; border: 1px solid #d1fae5; }
+.batch-item.unfit-item { background: #fff5f5; border-color: #fecaca; color: #991b1b; }
 
 .notice { padding: 14px 18px; border-radius: 10px; margin-bottom: 16px; font-weight: 600; font-size: 13px; }
 .ok { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
@@ -428,15 +449,27 @@ require __DIR__ . '/views/partials/header.php';
   <div class="notice err"><i class="fa-solid fa-triangle-exclamation"></i> <?= htmlspecialchars($error) ?></div>
 <?php endif; ?>
 
-<?php if ($processedCount > 0): ?>
-  <div class="batch-results-card">
-    <strong><i class="fa-solid fa-circle-check"></i> Successfully Ingested <?= $processedCount ?> Candidate Resume(s) [Source: <code>direct_upload</code>]</strong>
+<?php if (!empty($batchSummary)): ?>
+  <div class="batch-results-card" style="<?= $processedCount === 0 ? 'background:#fff5f5;border-color:#fecaca;color:#991b1b' : '' ?>">
+    <strong><i class="fa-solid fa-circle-check"></i> Ingestion Batch Report [Processed: <?= $processedCount ?> Valid Resume(s) | Source: <code>direct_upload</code>]</strong>
     <div class="batch-results-list">
       <?php foreach ($batchSummary as $b): ?>
-        <div class="batch-item">
-          <span><strong><?= htmlspecialchars($b['name'] ?? $b['file']) ?></strong> (<?= htmlspecialchars($b['email'] ?? 'No email') ?>)</span>
-          <span class="badge" style="background:#eeefee;color:#4338ca;font-weight:800"><?= isset($b['score']) && $b['score'] > 0 ? $b['score'].'%' : 'Indexed' ?></span>
-        </div>
+        <?php if (($b['status'] ?? '') === 'unfit'): ?>
+          <div class="batch-item unfit-item">
+            <span><i class="fa-solid fa-triangle-exclamation"></i> <strong><?= htmlspecialchars($b['file']) ?></strong> — <?= htmlspecialchars($b['msg']) ?></span>
+            <span class="badge" style="background:#fee2e2;color:#dc2626;font-weight:800">UNFIT / SKIPPED</span>
+          </div>
+        <?php elseif (($b['status'] ?? '') === 'success'): ?>
+          <div class="batch-item">
+            <span><i class="fa-solid fa-circle-check" style="color:#16a34a"></i> <strong><?= htmlspecialchars($b['name']) ?></strong> (<?= htmlspecialchars($b['email'] ?? 'No email') ?>)</span>
+            <span class="badge" style="background:#dcfce7;color:#15803d;font-weight:800"><?= isset($b['score']) && $b['score'] > 0 ? $b['score'].'%' : 'Indexed' ?></span>
+          </div>
+        <?php else: ?>
+          <div class="batch-item unfit-item">
+            <span><strong><?= htmlspecialchars($b['file']) ?></strong> — <?= htmlspecialchars($b['msg'] ?? 'Processing error') ?></span>
+            <span class="badge" style="background:#fee2e2;color:#dc2626;font-weight:800">ERROR</span>
+          </div>
+        <?php endif; ?>
       <?php endforeach; ?>
     </div>
   </div>
@@ -446,7 +479,7 @@ require __DIR__ . '/views/partials/header.php';
   <h2>📄 Upload Candidate Resumes</h2>
   <p style="font-size:13px;color:#6b7280;margin:0 0 16px">Select an active job profile to match requirements, or pick "Open Pool" for general ingestion without typing a JD.</p>
 
-  <form method="post" enctype="multipart/form-data">
+  <form method="post" enctype="multipart/form-data" id="ingestionForm">
     <div class="job-select-toolbar">
       <label style="font-size:12px;font-weight:800;color:#374151;text-transform:uppercase;display:block;margin-bottom:6px">Target Job Profile:</label>
       <select class="control" name="job_id" id="jobSelect" onchange="onJobSelect(this)" style="font-size:13px;border-radius:10px;padding:10px 14px;width:100%;border:1px solid #d1d5db;background:#fff">
@@ -480,7 +513,7 @@ require __DIR__ . '/views/partials/header.php';
     </div>
 
     <div style="margin-top:20px;display:flex;justify-content:flex-end">
-      <button class="btn btn-primary" type="submit" style="height:44px;border-radius:10px;padding:0 24px;font-weight:700;font-size:13px">
+      <button class="btn btn-primary" id="submitBtn" type="submit" style="height:44px;border-radius:10px;padding:0 24px;font-weight:700;font-size:13px">
         <i class="fa-solid fa-cloud-arrow-up"></i> Ingest & Parse Resumes
       </button>
     </div>
@@ -554,6 +587,14 @@ function updateFileNames(input) {
     label.innerText = 'Click or Drag & Drop Resumes Here';
   }
 }
+
+document.getElementById('ingestionForm').addEventListener('submit', function(e) {
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing & Parsing Resumes... Please wait...';
+  btn.style.opacity = '0.75';
+  btn.style.cursor = 'wait';
+});
 
 function copyRawText() {
   const text = document.getElementById('rawTextContent').innerText;
