@@ -19,6 +19,9 @@ require_once __DIR__ . '/lib/workspace.php';
  * Clean and normalize text
  */
 function cleanText(string $text): string {
+    if (!mb_check_encoding($text, 'UTF-8')) {
+        $text = mb_scrub($text, 'UTF-8');
+    }
     $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     $text = preg_replace('/\s+/u', ' ', $text);
     return trim((string)$text);
