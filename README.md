@@ -7,6 +7,9 @@ The core application works without an AI provider. AI integrations are optional 
 ## Main features
 
 - Responsive recruiter dashboard with real database counts.
+- Master-detail 40/60 shortlist workspace on `wishlist.php` with live searchable job profiles and candidate disposition tabs.
+- Recruiter interview hub on `interview_calendar.php` with mini month picker, date filtering, 1-click Google Calendar add links, and live `.ics` iCal subscription feed (`interview_calendar_feed.php`).
+- Full-width recruitment intelligence analytics on `analytics.php` with live candidate counts, skill shortage heatmaps, experience donut distribution, data quality metrics, and interactive SVG candidate location world map.
 - Job creation and editing with a live candidate-facing preview.
 - Rich job-description editing with sanitized HTML.
 - Required and preferred skills, experience range, location, employment type, status, and expected minimum commitment.
@@ -14,10 +17,8 @@ The core application works without an AI provider. AI integrations are optional 
 - Multiple resume upload for PDF, DOCX, and legacy DOC files.
 - Candidate details, contact information, source attribution, detected skills, experience timeline, gaps, and skill-wise experience.
 - Persistent job-specific Kanban pipeline: Applied, Screening, Interview, Offer, and Rejected.
-- Job-specific wishlist with Primary 5, Substitute 5, selection, blacklist, and email preview.
 - Candidate filters for job, skill, experience, source, score, stage, and country.
 - Candidate sorting by score or experience.
-- Analytics for skill coverage, job match, data quality, sources, employment gaps, duplicates, and email events.
 - Interactive country map with resume counts, percentages, tooltips, and candidate filtering.
 - Organization name, logo, and favicon configuration.
 - Encrypted integration settings for SMTP, Google services, AI providers, and the NonceBlox source database.

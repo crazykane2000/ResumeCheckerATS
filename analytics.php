@@ -37,7 +37,7 @@ foreach($items as $c){
         $emails[$key]=($emails[$key]??0)+1;
     }
     foreach(array_unique($c['skills']??[]) as $skill){
-        if(trim($skill)!=='')$skills[$skill]=($skills[$skill]??0)+1;
+        if(trim($skill)!=='') $skills[$skill]=($skills[$skill]??0)+1;
     }
 }
 
@@ -57,7 +57,7 @@ foreach($pdo->query('SELECT stage,COUNT(*) total FROM candidates GROUP BY stage'
     $stages[$r['stage']]=$r['total'];
 }
 
-$countries=$pdo->query("SELECT country_code,country_name,COUNT(*) total FROM candidates WHERE COALESCE(country_code,country_name,'')<>'' GROUP BY country_code,country_name ORDER BY total DESC LIMIT 12")->fetchAll();
+$countries=$pdo->query("SELECT country_code,country_name,COUNT(*) total FROM candidates WHERE COALESCE(country_code,country_name,'')<>'' GROUP BY country_code,country_name ORDER BY total DESC LIMIT 15")->fetchAll();
 foreach($countries as &$country){
     $country['country_code']=countryCodeFromName($country['country_code'],$country['country_name']);
 }
@@ -98,6 +98,7 @@ $pageStyles='<style>
   --purple:#7357d9;--purple2:#9b87ef;--soft:#f1edff;--soft2:#faf8ff;
   --green:#238a67;--amber:#c98624;--red:#d85768;--shadow:0 18px 45px rgba(56,42,93,.07);
 }
+.shell{width:100%;margin:0;padding:10px 0}
 .hero{display:flex;justify-content:space-between;gap:24px;align-items:flex-end;margin-bottom:22px}
 .eyebrow{color:var(--purple);font-weight:800;letter-spacing:.08em;text-transform:uppercase;font-size:11px}
 .hero h1{font-size:32px;line-height:1.1;margin:8px 0 8px;letter-spacing:-.035em;color:var(--ink)}
@@ -106,20 +107,16 @@ $pageStyles='<style>
 .btn-action{border:1px solid var(--line);background:#fff;padding:10px 16px;border-radius:12px;font-weight:750;cursor:pointer;text-decoration:none;color:var(--ink);font-size:13px}
 .btn-action.primary{background:var(--purple);color:white;border-color:var(--purple);box-shadow:0 8px 22px rgba(115,87,217,.22)}
 
-.searchbar{background:#fff;border:1px solid var(--line);border-radius:16px;padding:10px 16px;display:flex;align-items:center;gap:10px;box-shadow:var(--shadow);margin-bottom:18px}
-.searchbar input{border:0;outline:0;width:100%;font-size:14px;background:transparent}
-.kbd{font-size:11px;color:#817b8d;background:#f4f2f8;border:1px solid #e9e5f0;border-radius:7px;padding:4px 7px}
-
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px}
 .kpi,.card{background:rgba(255,255,255,.94);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:18px}
 .kpi{padding:20px;position:relative;overflow:hidden}
 .kpi .label{color:var(--muted);font-weight:650;font-size:13px}
 .kpi .value{font-size:32px;font-weight:850;letter-spacing:-.04em;margin-top:6px;color:var(--ink)}
 .kpi small{color:var(--purple);font-weight:700;font-size:12px}
 
-.analytics-grid{display:grid;grid-template-columns:1.55fr .9fr;gap:18px}
-.stack{display:grid;gap:18px}
-.card{padding:20px}
+.analytics-grid{display:grid;grid-template-columns:1.55fr .9fr;gap:20px}
+.stack{display:grid;gap:20px}
+.card{padding:22px}
 .head{display:flex;justify-content:space-between;align-items:flex-start;gap:15px;margin-bottom:18px}
 .head h2{font-size:17px;margin:0 0 3px;font-weight:800;color:var(--ink)}
 .hint{color:var(--muted);font-size:12px}
@@ -200,7 +197,7 @@ $pageStyles='<style>
 require __DIR__.'/views/partials/header.php';
 ?>
 
-<main class="shell" style="max-width:1540px;margin:auto;padding:20px 0">
+<main class="shell">
   <section class="hero">
     <div>
       <div class="eyebrow">NonceBlox ATS · Hiring intelligence</div>
@@ -212,12 +209,6 @@ require __DIR__.'/views/partials/header.php';
       <a href="job_edit.php" class="btn-action primary">＋ Create job</a>
     </div>
   </section>
-
-  <div class="searchbar">
-    <span style="color:var(--muted)"><i class="fa-solid fa-magnifying-glass"></i></span>
-    <input id="search" placeholder="Search job title, skills, or candidate details…">
-    <span class="kbd">⌘ K</span>
-  </div>
 
   <!-- KPI SUMMARY ROW -->
   <section class="kpis">
@@ -453,14 +444,14 @@ require __DIR__.'/views/partials/header.php';
           <?php foreach($countries as $cRow): ?>
           <div class="loc">
             <b><?=htmlspecialchars($cRow['country_name']?:$cRow['country_code'])?></b>
-            <span><?=$cRow['total']?></span>
+            <span><?=$cRow['total']?> candidates</span>
           </div>
           <?php endforeach; ?>
           <?php if(empty($countries)): ?>
-            <div class="loc"><b>India</b><span>242</span></div>
-            <div class="loc"><b>Kenya</b><span>15</span></div>
-            <div class="loc"><b>UAE</b><span>6</span></div>
-            <div class="loc"><b>Ireland</b><span>2</span></div>
+            <div class="loc"><b>India</b><span>242 candidates</span></div>
+            <div class="loc"><b>Kenya</b><span>15 candidates</span></div>
+            <div class="loc"><b>UAE</b><span>6 candidates</span></div>
+            <div class="loc"><b>Ireland</b><span>2 candidates</span></div>
           <?php endif; ?>
         </div>
       </article>
@@ -500,23 +491,60 @@ require __DIR__.'/views/partials/header.php';
     </aside>
   </section>
 
+  <!-- CANDIDATE LOCATION MAP -->
+  <section style="margin-top:20px">
+    <article class="card">
+      <div class="head">
+        <div>
+          <h2>Candidate location map</h2>
+          <div class="hint">Hover or click a highlighted country for applicant resume totals.</div>
+        </div>
+      </div>
+      <div id="candidateMap" style="min-height:300px;display:grid;place-items:center;background:#fafafa;border:1px solid var(--line);border-radius:12px;overflow:hidden">
+        <span class="muted"><i class="fa-solid fa-spinner fa-spin"></i> Loading SVG candidate map…</span>
+      </div>
+    </article>
+  </section>
+
   <div class="foot">NonceBlox ATS · Explainable recruiter-controlled screening · Evidence-backed analytics</div>
 </main>
 
 <script>
-document.querySelector("#search").addEventListener("input", e => {
-  const q = e.target.value.toLowerCase().trim();
-  document.querySelectorAll(".job").forEach(el => {
-    el.style.display = (!q || el.innerText.toLowerCase().includes(q)) ? "grid" : "none";
-  });
-});
+const countryData = <?=json_encode(array_column($countries, null, 'country_code'), JSON_HEX_TAG|JSON_HEX_AMP)?>;
+const candidateTotal = <?=max(1, $total)?>;
 
-document.addEventListener("keydown", e => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-    e.preventDefault();
-    document.querySelector("#search").focus();
-  }
-});
+fetch('assets/world.svg')
+  .then(response => {
+    if (!response.ok) throw new Error('Map unavailable');
+    return response.text();
+  })
+  .then(markup => {
+    const svg = new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement;
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+    svg.setAttribute('viewBox', '0 0 1009.6727 665.96301');
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.style.cssText = 'width:100%;height:auto;max-height:460px;display:block';
+    
+    Object.entries(countryData).forEach(([code, country]) => {
+      if (!code) return;
+      const path = svg.querySelector('#' + CSS.escape(code));
+      if (!path) return;
+      const strength = 0.35 + 0.65 * (Number(country.total) / Math.max(...Object.values(countryData).map(item => Number(item.total))));
+      path.style.fill = 'rgba(115,87,217,' + strength + ')';
+      path.style.cursor = 'pointer';
+      
+      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      title.textContent = (country.country_name || code) + ': ' + country.total + ' candidate resumes (' + Math.round(country.total / candidateTotal * 100) + '%)';
+      path.appendChild(title);
+      
+      path.onclick = () => location.href = 'candidates.php?country=' + encodeURIComponent(code);
+    });
+    document.getElementById('candidateMap').replaceChildren(svg);
+  })
+  .catch(() => {
+    document.getElementById('candidateMap').innerHTML = '<span class="muted" style="padding:20px">Candidate map SVG could not be loaded.</span>';
+  });
 </script>
 
 <?php require __DIR__.'/views/partials/footer.php'; ?>
