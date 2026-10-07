@@ -28,8 +28,14 @@ function candidateActivityTimeline(PDO $pdo,array $candidate): array {
         foreach($s->fetchAll() as $row){$status=(string)$row['status'];$at=(string)($row['sent_at']?:$row['created_at']);$detail='Campaign: '.(string)$row['campaign_name'].' · Subject: '.(string)$row['subject'];if(!empty($row['error_message']))$detail.=' · '.$row['error_message'];$add($at,'email','Outreach Campaign '.str_replace('_',' ',$status),$detail,$status==='sent'?'success':($status==='failed'?'danger':'info'));}
     } catch(Throwable $e) {}
 
-    $s=$pdo->prepare('SELECT ii.status,ii.sent_at,ii.created_at,ii.expires_at,ii.outcome,ii.outcome_at,isl.starts_at FROM interview_invitations ii LEFT JOIN interview_slots isl ON isl.id=ii.confirmed_slot_id WHERE ii.candidate_id=? ORDER BY ii.created_at');$s->execute([$id]);
-    foreach($s->fetchAll() as $row){$add((string)($row['sent_at']?:$row['created_at']),'interview','Interview invitation '.str_replace('_',' ',(string)$row['status']),!empty($row['starts_at'])?'Confirmed slot: '.$row['starts_at']:'Expires: '.$row['expires_at'],$row['status']==='confirmed'?'success':'info');if(!empty($row['outcome']))$add((string)($row['outcome_at']?:$row['created_at']),'outcome','Interview outcome: '.str_replace('_',' ',(string)$row['outcome']),'Recruiter-recorded outcome',in_array($row['outcome'],['selected','offer_accepted','hired'],true)?'success':(in_array($row['outcome'],['rejected','no_show','offer_declined'],true)?'danger':'info'));}
+    $s=$pdo->prepare('SELECT ii.status,ii.sent_at,ii.created_at,ii.expires_at,ii.outcome,ii.outcome_at,ii.notification_status,ii.notification_sent_at,isl.starts_at FROM interview_invitations ii LEFT JOIN interview_slots isl ON isl.id=ii.confirmed_slot_id WHERE ii.candidate_id=? ORDER BY ii.created_at');$s->execute([$id]);
+    foreach($s->fetchAll() as $row){
+        $add((string)($row['sent_at']?:$row['created_at']),'interview','Interview invitation '.str_replace('_',' ',(string)$row['status']),!empty($row['starts_at'])?'Confirmed slot: '.$row['starts_at']:'Expires: '.$row['expires_at'],$row['status']==='confirmed'?'success':'info');
+        if(!empty($row['notification_status']) && $row['notification_status']==='sent'){
+            $add((string)($row['notification_sent_at']?:$row['created_at']),'email','Interview Confirmation Email Sent',!empty($row['starts_at'])?'Slot: '.$row['starts_at']:'Confirmation email delivered','success');
+        }
+        if(!empty($row['outcome']))$add((string)($row['outcome_at']?:$row['created_at']),'outcome','Interview outcome: '.str_replace('_',' ',(string)$row['outcome']),'Recruiter-recorded outcome',in_array($row['outcome'],['selected','offer_accepted','hired'],true)?'success':(in_array($row['outcome'],['rejected','no_show','offer_declined'],true)?'danger':'info'));
+    }
 
     $s=$pdo->prepare("SELECT action,metadata_json,created_at FROM audit_events WHERE entity_type='candidate' AND entity_id=? ORDER BY created_at");$s->execute([$id]);
     $skip=['interview.invitation_sent','interview.invitation_failed','interview.outcome_recorded'];

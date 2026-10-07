@@ -19,5 +19,5 @@ try{
     $pdo->prepare("UPDATE interview_invitations SET notification_status='failed',notification_error='Delivery failed.' WHERE id=?")->execute([$id]);
     $outcome='failed';
 }
-$pdo->prepare("INSERT INTO audit_events(user_id,action,entity_type,entity_id,metadata_json) VALUES(?,'interview.confirmation_email_retried','interview_invitation',?,?)")->execute([$user['id'],(string)$id,json_encode(['outcome'=>$outcome])]);
+$pdo->prepare("INSERT INTO audit_events(user_id,action,entity_type,entity_id,metadata_json) VALUES(?,'interview.confirmation_email_resent','candidate',?,?)")->execute([$user['id'],(string)$invitation['candidate_id'],json_encode(['invitation_id'=>$id,'outcome'=>$outcome,'recipient_email'=>$invitation['recipient_email']])]);
 header('Location: interview_calendar.php?notification='.$outcome);

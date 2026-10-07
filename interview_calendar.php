@@ -16,6 +16,9 @@ $jobs=$pdo->prepare('SELECT DISTINCT j.id,j.title FROM interview_batches ib JOIN
 $jobs->execute([$user['id']]);
 $jobs=$jobs->fetchAll();
 
+// Fetch candidates for direct schedule modal
+$allCandidates = $pdo->query("SELECT id, name, email, role_title FROM candidates WHERE email IS NOT NULL AND email != '' ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+
 $params=[$user['id']];
 $where='';
 if($jobId){$where.=' AND ib.job_id=?';$params[]=$jobId;}
@@ -163,16 +166,30 @@ require __DIR__.'/views/partials/header.php';
     <h1 style="margin:0;font-size:26px;font-weight:900;color:#111827">Interview Calendar</h1>
     <p class="muted" style="margin:4px 0 0;font-size:13px;color:#6b7280">Manage upcoming interviews, track candidate confirmations, and sync seamlessly with Google Calendar.</p>
   </div>
-  <form method="get" style="display:flex;gap:10px">
-    <select class="control" name="job_id" onchange="this.form.submit()" style="font-size:13px;border-radius:10px;padding:8px 14px">
-      <option value="0">All job profiles</option>
-      <?php foreach($jobs as $job):?>
-        <option value="<?=(int)$job['id']?>" <?=(int)$job['id']===$jobId?'selected':''?>><?=htmlspecialchars($job['title'])?></option>
-      <?php endforeach?>
-    </select>
-  </form>
+  <div style="display:flex;gap:10px;align-items:center">
+    <button type="button" class="btn btn-primary" onclick="openDirectScheduleModal()" style="font-size:13px;border-radius:10px;padding:8px 16px;font-weight:700;background:#6366f1;color:#fff;border:0;cursor:pointer">
+      <i class="fa-solid fa-calendar-plus"></i> Direct Schedule & Email
+    </button>
+    <form method="get" style="display:flex;gap:10px">
+      <select class="control" name="job_id" onchange="this.form.submit()" style="font-size:13px;border-radius:10px;padding:8px 14px">
+        <option value="0">All job profiles</option>
+        <?php foreach($jobs as $job):?>
+          <option value="<?=(int)$job['id']?>" <?=(int)$job['id']===$jobId?'selected':''?>><?=htmlspecialchars($job['title'])?></option>
+        <?php endforeach?>
+      </select>
+    </form>
+  </div>
 </section>
 
+<?php if(isset($_GET['scheduled'])):?>
+  <div class="notice"><i class="fa-solid fa-circle-check"></i> Candidate scheduled successfully and custom confirmation email delivered!</div>
+<?php endif?>
+<?php if(isset($_GET['email_sent'])):?>
+  <div class="notice"><i class="fa-solid fa-circle-check"></i> Custom candidate email delivered successfully and logged to profile activity timeline!</div>
+<?php endif?>
+<?php if(isset($_GET['test_sent'])):?>
+  <div class="notice"><i class="fa-solid fa-circle-check"></i> Sample test email delivered to <?=htmlspecialchars($_GET['email']??'')?>! Check your inbox to review formatting.</div>
+<?php endif?>
 <?php if(isset($_GET['updated'])):?>
   <div class="notice"><i class="fa-solid fa-circle-check"></i> Interview outcome saved and pipeline updated.</div>
 <?php endif?>
@@ -297,13 +314,21 @@ require __DIR__.'/views/partials/header.php';
               </div>
             </div>
 
-            <?php if($meeting['notification_status']==='failed'):?>
-            <form method="post" action="interview_confirmation_retry.php" style="margin-top:10px">
-              <input type="hidden" name="csrf" value="<?=htmlspecialchars(csrfToken())?>">
-              <input type="hidden" name="invitation_id" value="<?=(int)$meeting['id']?>">
-              <button class="btn" type="submit" style="font-size:11px"><i class="fa-solid fa-rotate-right"></i> Retry email</button>
-            </form>
-            <?php endif?>
+            <?php 
+            $resendData = [
+              'candidate_id' => $meeting['candidate_id'],
+              'invitation_id' => (int)$meeting['id'],
+              'candidate_name' => $meeting['candidate_name'],
+              'recipient_email' => $meeting['recipient_email'],
+              'job_title' => $meeting['job_title'],
+              'starts_at' => !empty($meeting['starts_at']) ? date('Y-m-d\TH:i', strtotime($meeting['starts_at'])) : ''
+            ];
+            ?>
+            <div style="margin-top:10px">
+              <button type="button" class="btn btn-primary" onclick='openResendPopupModal(<?=json_encode($resendData, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>)' style="font-size:11px;padding:6px 12px;border-radius:6px;background:#6366f1;color:#fff;border:0;cursor:pointer;font-weight:700">
+                <i class="fa-solid fa-paper-plane"></i> Send / Resend Custom Email
+              </button>
+            </div>
 
             <!-- OUTCOME FORM -->
             <form class="outcome-form" method="post" action="interview_outcome.php">
@@ -330,7 +355,16 @@ require __DIR__.'/views/partials/header.php';
       <?php if(empty($waiting)): ?>
         <div style="padding:40px;text-align:center;color:#9ca3af;font-size:13px">No candidates currently awaiting reply.</div>
       <?php else: ?>
-        <?php foreach($waiting as $item): ?>
+        <?php foreach($waiting as $item): 
+          $resendData = [
+            'candidate_id' => $item['candidate_id'],
+            'invitation_id' => (int)$item['id'],
+            'candidate_name' => $item['candidate_name'],
+            'recipient_email' => $item['recipient_email'],
+            'job_title' => $item['job_title'],
+            'starts_at' => !empty($item['starts_at']) ? date('Y-m-d\TH:i', strtotime($item['starts_at'])) : ''
+          ];
+        ?>
         <div class="waiting-card">
           <div style="display:flex;justify-content:space-between;align-items:center">
             <strong>
@@ -344,6 +378,11 @@ require __DIR__.'/views/partials/header.php';
           <small style="color:#b45309;font-weight:700;display:block;margin-top:4px">
             Window <?=htmlspecialchars(date('d M',strtotime($item['availability_start'])))?> – <?=htmlspecialchars(date('d M Y',strtotime($item['availability_end'])))?>
           </small>
+          <div style="margin-top:10px">
+            <button type="button" class="btn btn-primary" onclick='openResendPopupModal(<?=json_encode($resendData, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>)' style="font-size:11px;padding:6px 12px;border-radius:6px;background:#6366f1;color:#fff;border:0;cursor:pointer;font-weight:700">
+              <i class="fa-solid fa-paper-plane"></i> Send / Resend Custom Email
+            </button>
+          </div>
         </div>
         <?php endforeach; ?>
       <?php endif; ?>
@@ -354,7 +393,16 @@ require __DIR__.'/views/partials/header.php';
       <?php if(empty($decided)): ?>
         <div style="padding:40px;text-align:center;color:#9ca3af;font-size:13px">No outcomes recorded yet.</div>
       <?php else: ?>
-        <?php foreach($decided as $item): ?>
+        <?php foreach($decided as $item): 
+          $resendData = [
+            'candidate_id' => $item['candidate_id'],
+            'invitation_id' => (int)$item['id'],
+            'candidate_name' => $item['candidate_name'],
+            'recipient_email' => $item['recipient_email'],
+            'job_title' => $item['job_title'],
+            'starts_at' => !empty($item['starts_at']) ? date('Y-m-d\TH:i', strtotime($item['starts_at'])) : ''
+          ];
+        ?>
         <div class="decision-card">
           <div style="display:flex;justify-content:space-between;align-items:center">
             <strong><?=htmlspecialchars($item['candidate_name'])?></strong>
@@ -364,6 +412,11 @@ require __DIR__.'/views/partials/header.php';
           <?php if($item['outcome_notes']): ?>
             <small style="font-style:italic;color:#374151;display:block;margin-top:4px">"<?=htmlspecialchars($item['outcome_notes'])?>"</small>
           <?php endif; ?>
+          <div style="margin-top:10px">
+            <button type="button" class="btn btn-primary" onclick='openResendPopupModal(<?=json_encode($resendData, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>)' style="font-size:11px;padding:6px 12px;border-radius:6px;background:#6366f1;color:#fff;border:0;cursor:pointer;font-weight:700">
+              <i class="fa-solid fa-paper-plane"></i> Send / Resend Custom Email
+            </button>
+          </div>
         </div>
         <?php endforeach; ?>
       <?php endif; ?>
@@ -402,6 +455,173 @@ require __DIR__.'/views/partials/header.php';
     <div style="margin-top:16px;display:flex;justify-content:flex-end">
       <button type="button" class="btn" onclick="closeSyncModal()" style="border-radius:8px">Close</button>
     </div>
+  </div>
+</div>
+
+<!-- DIRECT SCHEDULE & EMAIL MODAL -->
+<div class="modal-overlay" id="directScheduleModal">
+  <div class="modal-card" style="max-width:620px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="margin:0;font-size:18px;font-weight:800;color:#111827">
+        <i class="fa-solid fa-calendar-plus" style="color:#6366f1"></i> Direct Schedule Candidate & Edit Email
+      </h3>
+      <button type="button" class="btn" onclick="closeDirectScheduleModal()" style="border:0;background:transparent;font-size:16px;cursor:pointer;color:#6b7280"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <form method="post" action="interview_calendar_direct.php">
+      <input type="hidden" name="csrf" value="<?=htmlspecialchars(csrfToken())?>">
+      
+      <div style="margin-bottom:14px">
+        <label style="display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:6px">Select Candidate *</label>
+        <select class="control" name="candidate_id" id="directCandidateSelect" required onchange="onCandidateSelect(this)" style="width:100%;font-size:13px;border-radius:10px;padding:10px">
+          <option value="">-- Choose Candidate --</option>
+          <?php foreach($allCandidates as $cand):?>
+            <option value="<?=htmlspecialchars($cand['id'])?>" data-email="<?=htmlspecialchars($cand['email'])?>" data-name="<?=htmlspecialchars($cand['name'])?>" data-role="<?=htmlspecialchars($cand['role_title'])?>">
+              <?=htmlspecialchars($cand['name'])?> (<?=htmlspecialchars($cand['role_title'])?>) — <?=htmlspecialchars($cand['email'])?>
+            </option>
+          <?php endforeach?>
+        </select>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <label style="display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:6px">Interview Date & Time (IST) *</label>
+        <input type="datetime-local" class="control" name="interview_time" required style="width:100%;font-size:13px;border-radius:10px;padding:10px">
+      </div>
+
+      <div style="margin-bottom:14px">
+        <label style="display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:6px">Email Subject (Editable) *</label>
+        <input type="text" class="control" name="subject" id="directEmailSubject" required value="Interview Confirmation & Slot Details — NonceBlox" style="width:100%;font-size:13px;border-radius:10px;padding:10px">
+      </div>
+
+      <div style="margin-bottom:18px">
+        <label style="display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:6px">Email Message / Body Content (Editable) *</label>
+        <textarea class="control" name="body" id="directEmailBody" rows="5" required style="width:100%;font-size:13px;border-radius:10px;padding:10px;font-family:inherit">Hi,
+
+Your interview slot has been scheduled. Please find the details below and ensure your availability.
+
+Location: Online Google Meet / Zoom
+Best regards,
+NonceBlox Hiring Team</textarea>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;gap:10px">
+        <button type="button" class="btn" onclick="closeDirectScheduleModal()" style="border-radius:10px;padding:10px 18px">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="background:#6366f1;color:#fff;border-radius:10px;padding:10px 20px;font-weight:700">
+          <i class="fa-solid fa-paper-plane"></i> Schedule & Send Email
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- RESEND & TEST EMAIL POPUP MODAL -->
+<div class="modal-overlay" id="resendEmailModal">
+  <div class="modal-card" style="max-width:940px;width:95%;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid #e2e8f0;padding-bottom:12px">
+      <div>
+        <h3 style="margin:0;font-size:18px;font-weight:800;color:#111827">
+          <i class="fa-solid fa-paper-plane" style="color:#6366f1"></i> Send / Resend Custom Candidate Email
+        </h3>
+        <p class="muted" style="margin:2px 0 0;font-size:12px;color:#6b7280" id="resendModalSubtitle">Candidate: --</p>
+      </div>
+      <button type="button" class="btn" onclick="closeResendModal()" style="border:0;background:transparent;font-size:18px;cursor:pointer;color:#6b7280">&times;</button>
+    </div>
+
+    <!-- Live status alert div for AJAX sample test delivery -->
+    <div id="testCopyAlert" style="display:none;margin-bottom:14px;padding:12px 14px;border-radius:8px;font-size:12px;font-weight:600"></div>
+
+    <form method="post" action="interview_resend_custom.php" id="resendForm">
+      <input type="hidden" name="csrf" value="<?=htmlspecialchars(csrfToken())?>">
+      <input type="hidden" name="candidate_id" id="popupCandidateId">
+      <input type="hidden" name="invitation_id" id="popupInvitationId">
+      <input type="hidden" name="recipient_email" id="popupRecipientEmail">
+      <input type="hidden" name="action_type" id="popupActionType" value="send_candidate">
+
+      <div style="display:flex;gap:20px;flex-wrap:wrap">
+        <!-- LEFT COLUMN: FORM CONTROLS -->
+        <div style="flex:1.2;min-width:300px">
+          <div style="margin-bottom:14px;background:#f8fafc;padding:12px 14px;border-radius:8px;border:1px solid #e2e8f0;font-size:12px">
+            <strong style="color:#1e293b;display:block">Candidate Target Details:</strong>
+            <span id="popupCandidateDisplay" style="color:#475569">--</span>
+          </div>
+
+          <div style="margin-bottom:14px">
+            <label style="display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:6px">Interview Date & Time (IST)</label>
+            <input type="datetime-local" class="control" name="interview_time" id="popupInterviewTime" oninput="updateLivePreview()" style="width:100%;font-size:13px;border-radius:10px;padding:10px">
+          </div>
+
+          <div style="margin-bottom:14px">
+            <label style="display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:6px">Email Subject (Editable) *</label>
+            <input type="text" class="control" name="subject" id="popupSubject" required oninput="updateLivePreview()" style="width:100%;font-size:13px;border-radius:10px;padding:10px">
+          </div>
+
+          <div style="margin-bottom:18px">
+            <label style="display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:6px">Email Message / Body (Editable) *</label>
+            <textarea class="control" name="body" id="popupBody" rows="6" required oninput="updateLivePreview()" style="width:100%;font-size:13px;border-radius:10px;padding:10px;font-family:inherit"></textarea>
+          </div>
+
+          <!-- SAMPLE TEST EMAIL SECTION -->
+          <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;padding:14px;margin-bottom:18px">
+            <strong style="font-size:12px;color:#4338ca;display:block;margin-bottom:4px">
+              <i class="fa-solid fa-vial"></i> Sample Test Email (Verify Inbox Format & Logo)
+            </strong>
+            <p style="margin:0 0 10px;font-size:11px;color:#6366f1">Enter your email address below to send a sample test email before sending to the candidate.</p>
+            
+            <div style="display:flex;gap:8px">
+              <input type="email" class="control" name="test_email" id="popupTestEmail" value="<?=htmlspecialchars($headerUser['email']??'kinie.sharma@nonceblox.com')?>" placeholder="Enter test email address" style="flex:1;font-size:12px;border-radius:8px;padding:8px 12px">
+              <button type="button" class="btn" onclick="triggerTestCopy()" style="font-size:12px;background:#4338ca;color:#fff;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;white-space:nowrap">
+                <i class="fa-solid fa-paper-plane"></i> Send Test Copy
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT COLUMN: LIVE REALTIME EMAIL PREVIEW -->
+        <div style="flex:1;min-width:300px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px;display:flex;flex-direction:column">
+          <div style="font-size:12px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
+            <span><i class="fa-regular fa-eye"></i> Live Email Preview</span>
+            <span style="font-size:10px;background:#e0e7ff;color:#4338ca;padding:2px 8px;border-radius:10px;text-transform:none">Real-time</span>
+          </div>
+
+          <div style="background:#fff;border:1px solid #cbd5e1;border-radius:10px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.04);flex:1;display:flex;flex-direction:column">
+            <!-- NonceBlox Branded Header -->
+            <div style="background:linear-gradient(135deg,#6f45ff 0%,#8d63ff 100%);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;color:#fff">
+              <strong style="font-size:18px;letter-spacing:-0.02em">NonceBlox</strong>
+              <span style="font-size:10px;background:rgba(255,255,255,0.2);padding:3px 8px;border-radius:12px;font-weight:600">Careers Hub</span>
+            </div>
+
+            <div style="padding:18px;font-size:12px;color:#334155;line-height:1.6;flex:1">
+              <div style="font-weight:700;font-size:13px;color:#0f172a;margin-bottom:10px" id="previewSubjectText">
+                Interview Schedule & Confirmation
+              </div>
+
+              <div id="previewTimeContainer" style="margin-bottom:12px;padding:10px 12px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;color:#4338ca;display:none">
+                <strong style="font-size:11px;display:block;margin-bottom:2px;color:#3730a3">🗓️ Scheduled Date & Time:</strong>
+                <span style="font-size:12px;font-weight:700" id="previewTimeText">--</span>
+              </div>
+
+              <div style="white-space:pre-wrap;font-size:12px;color:#334155;line-height:1.6" id="previewBodyText">
+                Hi Candidate,
+
+Your interview details will appear here as you type in the text box on the left.
+              </div>
+            </div>
+
+            <div style="padding:10px 16px;background:#f8fafc;border-top:1px solid #f1f5f9;font-size:10px;color:#94a3b8;text-align:center">
+              NonceBlox Careers & Hiring Hub · Official Notice
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODAL ACTION BUTTONS -->
+      <div style="display:flex;justify-content:flex-end;gap:10px;border-top:1px solid #e2e8f0;padding-top:14px;margin-top:14px">
+        <button type="button" class="btn" onclick="closeResendModal()" style="border-radius:10px;padding:10px 18px">Cancel</button>
+        <button type="submit" class="btn btn-primary" onclick="document.getElementById('popupActionType').value='send_candidate'" style="background:#6366f1;color:#fff;border-radius:10px;padding:10px 20px;font-weight:700">
+          <i class="fa-solid fa-paper-plane"></i> Send Email to Candidate
+        </button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -517,6 +737,103 @@ function openSyncModal() {
 
 function closeSyncModal() {
   document.getElementById('syncModal').classList.remove('active');
+}
+
+function openDirectScheduleModal() {
+  document.getElementById('directScheduleModal').classList.add('active');
+}
+
+function closeDirectScheduleModal() {
+  document.getElementById('directScheduleModal').classList.remove('active');
+}
+
+function onCandidateSelect(selectEl) {
+  const opt = selectEl.options[selectEl.selectedIndex];
+  if (!opt || !opt.value) return;
+  const name = opt.getAttribute('data-name') || 'Candidate';
+  const role = opt.getAttribute('data-role') || 'Candidate';
+
+  document.getElementById('directEmailSubject').value = `Interview Invitation — ${role} Position`;
+  document.getElementById('directEmailBody').value = `Hi ${name},\n\nYour interview for the position of ${role} has been scheduled. Please find the details below.\n\nLocation: Online Google Meet / Zoom\n\nBest regards,\nNonceBlox Hiring Team`;
+}
+
+function updateLivePreview() {
+  const subj = document.getElementById('popupSubject').value || 'Interview Schedule & Confirmation';
+  const body = document.getElementById('popupBody').value || '';
+  const timeVal = document.getElementById('popupInterviewTime').value;
+
+  document.getElementById('previewSubjectText').innerText = subj;
+  document.getElementById('previewBodyText').innerText = body;
+
+  const timeContainer = document.getElementById('previewTimeContainer');
+  if (timeVal) {
+    const d = new Date(timeVal);
+    timeContainer.style.display = 'block';
+    document.getElementById('previewTimeText').innerText = d.toLocaleString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+    }) + ' (IST)';
+  } else {
+    timeContainer.style.display = 'none';
+  }
+}
+
+function openResendPopupModal(data) {
+  document.getElementById('popupCandidateId').value = data.candidate_id || '';
+  document.getElementById('popupInvitationId').value = data.invitation_id || 0;
+  document.getElementById('popupRecipientEmail').value = data.recipient_email || '';
+  document.getElementById('popupInterviewTime').value = data.starts_at || '';
+
+  const candName = data.candidate_name || 'Candidate';
+  const jobTitle = data.job_title || 'Position';
+  const email = data.recipient_email || '';
+
+  document.getElementById('resendModalSubtitle').innerText = `Candidate: ${candName} (${email})`;
+  document.getElementById('popupCandidateDisplay').innerText = `${candName} — ${jobTitle} (${email})`;
+
+  document.getElementById('popupSubject').value = `Interview Invitation & Schedule — ${jobTitle} — NonceBlox`;
+  document.getElementById('popupBody').value = `Hi ${candName},\n\nYour interview for the position of ${jobTitle} at NonceBlox has been confirmed.\n\nPlease review the details below. Ensure your availability and join on time.\n\nLocation: Online Google Meet / Zoom\n\nBest regards,\nNonceBlox Hiring Team`;
+
+  document.getElementById('testCopyAlert').style.display = 'none';
+  updateLivePreview();
+  document.getElementById('resendEmailModal').classList.add('active');
+}
+
+function closeResendModal() {
+  document.getElementById('resendEmailModal').classList.remove('active');
+}
+
+function triggerTestCopy() {
+  const alertEl = document.getElementById('testCopyAlert');
+  alertEl.style.display = 'block';
+  alertEl.style.background = '#e0e7ff';
+  alertEl.style.color = '#3730a3';
+  alertEl.innerText = 'Sending sample test email... Please wait.';
+
+  const formEl = document.getElementById('resendForm');
+  const formData = new FormData(formEl);
+  formData.set('action_type', 'send_test_ajax');
+
+  fetch('interview_resend_custom.php', {
+    method: 'POST',
+    body: formData
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      alertEl.style.background = '#dcfce7';
+      alertEl.style.color = '#15803d';
+      alertEl.innerText = '✅ ' + data.message;
+    } else {
+      alertEl.style.background = '#fee2e2';
+      alertEl.style.color = '#b91c1c';
+      alertEl.innerText = '❌ ' + (data.message || 'Could not send test email.');
+    }
+  })
+  .catch(err => {
+    alertEl.style.background = '#fee2e2';
+    alertEl.style.color = '#b91c1c';
+    alertEl.innerText = '❌ Error sending test copy: ' + err.message;
+  });
 }
 
 function copyFeedUrl() {
