@@ -23,6 +23,50 @@ if(!$candidate){
     exit('Candidate not found.');
 }
 
+// Handle Scorecard Submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_scorecard' && verifyCsrf($_POST['csrf'] ?? '')) {
+    $tech = max(1, min(5, (int)($_POST['technical_rating'] ?? 3)));
+    $comm = max(1, min(5, (int)($_POST['communication_rating'] ?? 3)));
+    $cult = max(1, min(5, (int)($_POST['cultural_rating'] ?? 3)));
+    $prob = max(1, min(5, (int)($_POST['problem_solving_rating'] ?? 3)));
+    $overall = round(($tech + $comm + $cult + $prob) / 4, 1);
+
+    $strengths = array_values(array_filter(array_map('trim', (array)($_POST['strengths'] ?? []))));
+    $weaknesses = array_values(array_filter(array_map('trim', (array)($_POST['weaknesses'] ?? []))));
+    $recommendation = trim($_POST['recommendation'] ?? 'Hire');
+    $notes = trim($_POST['notes'] ?? '');
+
+    $insertStmt = $pdo->prepare("INSERT INTO interview_scorecards(candidate_id, job_id, interviewer_id, technical_rating, communication_rating, cultural_rating, problem_solving_rating, overall_score, strengths_json, weaknesses_json, recommendation, notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)");
+    $insertStmt->execute([
+        $candidate['id'],
+        $candidate['job_id'] ?? null,
+        currentUser()['id'],
+        $tech,
+        $comm,
+        $cult,
+        $prob,
+        $overall,
+        json_encode($strengths),
+        json_encode($weaknesses),
+        $recommendation,
+        $notes
+    ]);
+
+    $pdo->prepare("INSERT INTO audit_events(user_id,action,entity_type,entity_id,metadata_json) VALUES(?,'interview.scorecard_submitted','candidate',?,?)")->execute([
+        currentUser()['id'],
+        $candidate['id'],
+        json_encode(['overall_score' => $overall, 'recommendation' => $recommendation, 'outcome' => 'success'])
+    ]);
+
+    header('Location: candidate_detail.php?id=' . urlencode($candidate['id']) . '&scorecard_saved=1#scorecard');
+    exit;
+}
+
+// Fetch candidate scorecards
+$scorecardsStmt = $pdo->prepare("SELECT s.*, u.name AS interviewer_name FROM interview_scorecards s LEFT JOIN users u ON u.id = s.interviewer_id WHERE s.candidate_id = ? ORDER BY s.id DESC");
+$scorecardsStmt->execute([$candidate['id']]);
+$scorecards = $scorecardsStmt->fetchAll(PDO::FETCH_ASSOC);
+
 $d=candidatePresentation($candidate);
 $experience=$candidate['experience']??[];
 
@@ -682,6 +726,179 @@ require __DIR__.'/views/partials/header.php';
                 <p class="muted">No historical audit activity recorded yet.</p>
             <?php endif?>
         </div>
+    </article>
+</section>
+
+<!-- Structured Interview Scorecard & Rating Section -->
+<section class="cd2-grid" id="scorecard" style="margin-top:14px">
+    <!-- Submit Scorecard Form -->
+    <article class="cd2-card">
+        <h3>
+            <span><i class="fa-solid fa-clipboard-check" style="color:var(--primary)"></i> Submit Structured Interview Scorecard</span>
+        </h3>
+        
+        <?php if(isset($_GET['scorecard_saved'])):?>
+            <div class="cd2-banner fresh" style="margin-bottom:14px;padding:10px 14px">
+                <i class="fa-solid fa-circle-check"></i>
+                <span style="font-size:12px;font-weight:600">Interview Scorecard submitted and recorded in candidate history!</span>
+            </div>
+        <?php endif?>
+
+        <form method="post" action="candidate_detail.php?id=<?=urlencode($candidate['id'])?>#scorecard">
+            <input type="hidden" name="csrf" value="<?=csrfToken()?>">
+            <input type="hidden" name="action" value="save_scorecard">
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+                <div>
+                    <label style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase">Technical Skills Rating (1–5)</label>
+                    <select name="technical_rating" style="width:100%;padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px;font-size:13px">
+                        <option value="5">⭐⭐⭐⭐⭐ 5/5 - Exceptional</option>
+                        <option value="4" selected>⭐⭐⭐⭐ 4/5 - Strong</option>
+                        <option value="3">⭐⭐⭐ 3/5 - Average</option>
+                        <option value="2">⭐⭐ 2/5 - Below Average</option>
+                        <option value="1">⭐ 1/5 - Unsatisfactory</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase">Communication & Soft Skills</label>
+                    <select name="communication_rating" style="width:100%;padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px;font-size:13px">
+                        <option value="5">⭐⭐⭐⭐⭐ 5/5 - Excellent</option>
+                        <option value="4" selected>⭐⭐⭐⭐ 4/5 - Good</option>
+                        <option value="3">⭐⭐⭐ 3/5 - Acceptable</option>
+                        <option value="2">⭐⭐ 2/5 - Poor</option>
+                        <option value="1">⭐ 1/5 - Very Poor</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase">Cultural Fit & Alignment</label>
+                    <select name="cultural_rating" style="width:100%;padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px;font-size:13px">
+                        <option value="5">⭐⭐⭐⭐⭐ 5/5 - High Alignment</option>
+                        <option value="4" selected>⭐⭐⭐⭐ 4/5 - Fits Well</option>
+                        <option value="3">⭐⭐⭐ 3/5 - Neutral</option>
+                        <option value="2">⭐⭐ 2/5 - Low Alignment</option>
+                        <option value="1">⭐ 1/5 - Mismatch</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase">Problem Solving & Aptitude</label>
+                    <select name="problem_solving_rating" style="width:100%;padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px;font-size:13px">
+                        <option value="5">⭐⭐⭐⭐⭐ 5/5 - Outstanding</option>
+                        <option value="4" selected>⭐⭐⭐⭐ 4/5 - Solid Reasoning</option>
+                        <option value="3">⭐⭐⭐ 3/5 - Adequate</option>
+                        <option value="2">⭐⭐ 2/5 - Struggles</option>
+                        <option value="1">⭐ 1/5 - Poor Reasoning</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Strengths Checklist -->
+            <div style="margin-bottom:12px">
+                <label style="font-size:11px;font-weight:700;color:#15803d;text-transform:uppercase;display:block;margin-bottom:6px">
+                    <i class="fa-solid fa-circle-check"></i> Key Strengths Checklist
+                </label>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:#1e293b">
+                    <label><input type="checkbox" name="strengths[]" value="Strong Technical Knowledge"> Strong Technical Knowledge</label>
+                    <label><input type="checkbox" name="strengths[]" value="Clear Communication"> Clear Communication</label>
+                    <label><input type="checkbox" name="strengths[]" value="Fast Learner"> Fast Learner</label>
+                    <label><input type="checkbox" name="strengths[]" value="System Design Depth"> System Design Depth</label>
+                    <label><input type="checkbox" name="strengths[]" value="Great Culture Fit"> Great Culture Fit</label>
+                </div>
+            </div>
+
+            <!-- Weaknesses Checklist -->
+            <div style="margin-bottom:12px">
+                <label style="font-size:11px;font-weight:700;color:#b91c1c;text-transform:uppercase;display:block;margin-bottom:6px">
+                    <i class="fa-solid fa-triangle-exclamation"></i> Areas of Improvement / Concerns
+                </label>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:#1e293b">
+                    <label><input type="checkbox" name="weaknesses[]" value="Higher CTC Expectation"> Higher CTC Expectation</label>
+                    <label><input type="checkbox" name="weaknesses[]" value="Notice Period Gap"> Notice Period Gap</label>
+                    <label><input type="checkbox" name="weaknesses[]" value="Needs Mentorship"> Needs Mentorship</label>
+                    <label><input type="checkbox" name="weaknesses[]" value="Shallow Hands-on Depth"> Shallow Hands-on Depth</label>
+                    <label><input type="checkbox" name="weaknesses[]" value="Limited Architecture Exp"> Limited Architecture Exp</label>
+                </div>
+            </div>
+
+            <!-- Recommendation & Notes -->
+            <div style="margin-bottom:12px">
+                <label style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase">Overall Hiring Recommendation</label>
+                <select name="recommendation" style="width:100%;padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;margin-top:4px;font-size:13px;font-weight:600">
+                    <option value="Strong Hire">⭐ Strong Hire</option>
+                    <option value="Hire" selected>✅ Hire</option>
+                    <option value="Hold">⚠️ Hold / Need Second Opinion</option>
+                    <option value="Reject">❌ Reject</option>
+                </select>
+            </div>
+
+            <div style="margin-bottom:14px">
+                <label style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase">Interviewer Evaluation Notes</label>
+                <textarea name="notes" rows="3" placeholder="Provide detailed feedback on candidate performance, technical answers, and overall impression..." style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:12px;margin-top:4px"></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center"><i class="fa-solid fa-floppy-disk"></i> Save Scorecard Evaluation</button>
+        </form>
+    </article>
+
+    <!-- Display Submitted Scorecards -->
+    <article class="cd2-card">
+        <h3>
+            <span><i class="fa-solid fa-star" style="color:#eab308"></i> Submitted Interview Scorecards (<?=count($scorecards)?>)</span>
+        </h3>
+        <?php if(empty($scorecards)):?>
+            <p class="muted" style="font-size:12px;text-align:center;padding:20px">No interview scorecards submitted yet for this candidate.</p>
+        <?php else:?>
+            <?php foreach($scorecards as $sc): 
+                $st = json_decode($sc['strengths_json'] ?? '[]', true) ?: [];
+                $wk = json_decode($sc['weaknesses_json'] ?? '[]', true) ?: [];
+            ?>
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:14px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                        <div>
+                            <strong style="font-size:14px;color:#0f172a"><?=htmlspecialchars($sc['interviewer_name'] ?: 'Interviewer')?></strong>
+                            <small class="muted" style="display:block;font-size:10px"><?=date('d M Y, h:i A', strtotime($sc['created_at']))?></small>
+                        </div>
+                        <div style="text-align:right">
+                            <span style="font-size:16px;font-weight:800;color:#7c3aed">⭐ <?=number_format($sc['overall_score'], 1)?> / 5.0</span>
+                            <span class="chip-item <?=match($sc['recommendation']){'Strong Hire','Hire'=>'matched','Hold'=>'benefit',default=>'missing'}?>" style="display:block;margin-top:2px">
+                                <?=htmlspecialchars($sc['recommendation'])?>
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Category Rating Grid -->
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;margin-bottom:10px;background:#ffffff;padding:10px;border-radius:6px;border:1px solid #e2e8f0">
+                        <div>Technical: <strong><?=str_repeat('⭐', $sc['technical_rating'])?></strong> (<?=$sc['technical_rating']?>/5)</div>
+                        <div>Communication: <strong><?=str_repeat('⭐', $sc['communication_rating'])?></strong> (<?=$sc['communication_rating']?>/5)</div>
+                        <div>Culture Fit: <strong><?=str_repeat('⭐', $sc['cultural_rating'])?></strong> (<?=$sc['cultural_rating']?>/5)</div>
+                        <div>Problem Solving: <strong><?=str_repeat('⭐', $sc['problem_solving_rating'])?></strong> (<?=$sc['problem_solving_rating']?>/5)</div>
+                    </div>
+
+                    <?php if(!empty($st)):?>
+                        <div style="margin-bottom:6px;font-size:11px">
+                            <strong style="color:#15803d">Strengths:</strong>
+                            <?php foreach($st as $sItem):?>
+                                <span class="chip-item matched" style="font-size:10px;padding:2px 6px;margin-left:4px"><?=htmlspecialchars($sItem)?></span>
+                            <?php endforeach?>
+                        </div>
+                    <?php endif?>
+
+                    <?php if(!empty($wk)):?>
+                        <div style="margin-bottom:6px;font-size:11px">
+                            <strong style="color:#b91c1c">Concerns:</strong>
+                            <?php foreach($wk as $wItem):?>
+                                <span class="chip-item missing" style="font-size:10px;padding:2px 6px;margin-left:4px"><?=htmlspecialchars($wItem)?></span>
+                            <?php endforeach?>
+                        </div>
+                    <?php endif?>
+
+                    <?php if(!empty($sc['notes'])):?>
+                        <div style="font-size:11px;color:#334155;margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0;line-height:1.4">
+                            <strong>Notes:</strong> <?=nl2br(htmlspecialchars($sc['notes']))?>
+                        </div>
+                    <?php endif?>
+                </div>
+            <?php endforeach?>
+        <?php endif?>
     </article>
 </section>
 
