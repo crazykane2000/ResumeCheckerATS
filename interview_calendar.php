@@ -576,40 +576,43 @@ NonceBlox Hiring Team</textarea>
           </div>
         </div>
 
-        <!-- RIGHT COLUMN: LIVE REALTIME EMAIL PREVIEW -->
-        <div style="flex:1;min-width:300px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px;display:flex;flex-direction:column">
-          <div style="font-size:12px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
-            <span><i class="fa-regular fa-eye"></i> Live Email Preview</span>
-            <span style="font-size:10px;background:#e0e7ff;color:#4338ca;padding:2px 8px;border-radius:10px;text-transform:none">Real-time</span>
-          </div>
-
-          <div style="background:#fff;border:1px solid #cbd5e1;border-radius:10px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.04);flex:1;display:flex;flex-direction:column">
-            <!-- NonceBlox Branded Header -->
-            <div style="background:linear-gradient(135deg,#6f45ff 0%,#8d63ff 100%);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;color:#fff">
-              <strong style="font-size:18px;letter-spacing:-0.02em">NonceBlox</strong>
-              <span style="font-size:10px;background:rgba(255,255,255,0.2);padding:3px 8px;border-radius:12px;font-weight:600">Careers Hub</span>
+        <!-- RIGHT COLUMN: LIVE REALTIME OFFICIAL NONCEBLOX EMAIL PREVIEW -->
+        <div style="flex:1;min-width:320px;background:#0d1020;border-radius:16px;padding:20px;color:#fff;box-shadow:0 12px 36px rgba(0,0,0,0.3);display:flex;flex-direction:column;justify-space-between">
+          <div>
+            <!-- Top Header -->
+            <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid #282b40">
+              <span style="font-size:18px;font-weight:900;color:#fff;letter-spacing:-0.02em">NonceBlox</span>
+              <span style="font-size:10px;color:#cbbcff;font-weight:700;letter-spacing:1px;text-transform:uppercase">INTERVIEW INVITATION</span>
             </div>
 
-            <div style="padding:18px;font-size:12px;color:#334155;line-height:1.6;flex:1">
-              <div style="font-weight:700;font-size:13px;color:#0f172a;margin-bottom:10px" id="previewSubjectText">
-                Interview Schedule & Confirmation
-              </div>
+            <!-- Dark Hero Banner -->
+            <div style="padding:16px 0 10px">
+              <span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#17152a;border:1px solid #39354c;color:#cbbcff;font-size:9px;font-weight:700;letter-spacing:1px">YOUR NEXT CONVERSATION</span>
+              <h4 style="margin:10px 0 6px;font-size:22px;font-weight:500;color:#fff;line-height:1.2">We'd love to <span style="color:#9b7cff">meet you.</span></h4>
+              <p style="margin:0;font-size:12px;color:#c4c1ce;line-height:1.5" id="previewSubjectText">Interview Schedule & Details</p>
+            </div>
 
-              <div id="previewTimeContainer" style="margin-bottom:12px;padding:10px 12px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;color:#4338ca;display:none">
-                <strong style="font-size:11px;display:block;margin-bottom:2px;color:#3730a3">🗓️ Scheduled Date & Time:</strong>
-                <span style="font-size:12px;font-weight:700" id="previewTimeText">--</span>
-              </div>
+            <!-- Details Card Strip -->
+            <div style="background:#171a2e;border:1px solid #2a2f4c;border-radius:12px;padding:12px 14px;margin:12px 0">
+              <div style="font-size:10px;color:#7552da;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">INTERVIEW DETAILS</div>
+              <div style="font-size:11px;color:#c4c1ce"><strong style="color:#fff">Position:</strong> <span id="previewJobTitleText">Role</span></div>
+              <div style="font-size:11px;color:#c4c1ce;margin-top:3px"><strong style="color:#fff">Date & Time:</strong> <span id="previewTimeText">06 Oct - 11 Oct 2026 (Choose slot)</span></div>
+            </div>
 
-              <div style="white-space:pre-wrap;font-size:12px;color:#334155;line-height:1.6" id="previewBodyText">
-                Hi Candidate,
+            <!-- Body text -->
+            <div style="white-space:pre-wrap;font-size:12px;color:#d1d5db;line-height:1.6;margin:12px 0" id="previewBodyText">
+              Hi Candidate,
 
 Your interview details will appear here as you type in the text box on the left.
-              </div>
             </div>
+          </div>
 
-            <div style="padding:10px 16px;background:#f8fafc;border-top:1px solid #f1f5f9;font-size:10px;color:#94a3b8;text-align:center">
-              NonceBlox Careers & Hiring Hub · Official Notice
+          <!-- Action Button & Footer -->
+          <div style="margin-top:16px;border-top:1px solid #282b40;padding-top:12px;text-align:center">
+            <div style="display:inline-block;padding:10px 20px;background:linear-gradient(135deg,#3864dc,#6843e9,#8348ec);color:#fff;font-weight:700;font-size:12px;border-radius:8px">
+              Choose interview slot
             </div>
+            <div style="margin-top:10px;font-size:9px;color:#7e7888">© NonceBlox. All rights reserved. • www.nonceblox.com</div>
           </div>
         </div>
       </div>
@@ -765,15 +768,16 @@ function updateLivePreview() {
   document.getElementById('previewSubjectText').innerText = subj;
   document.getElementById('previewBodyText').innerText = body;
 
-  const timeContainer = document.getElementById('previewTimeContainer');
-  if (timeVal) {
-    const d = new Date(timeVal);
-    timeContainer.style.display = 'block';
-    document.getElementById('previewTimeText').innerText = d.toLocaleString('en-US', {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
-    }) + ' (IST)';
-  } else {
-    timeContainer.style.display = 'none';
+  const previewTimeEl = document.getElementById('previewTimeText');
+  if (previewTimeEl) {
+    if (timeVal) {
+      const d = new Date(timeVal);
+      previewTimeEl.innerText = d.toLocaleString('en-US', {
+        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+      }) + ' (IST)';
+    } else {
+      previewTimeEl.innerText = '06 Oct - 11 Oct 2026 (Choose an available slot)';
+    }
   }
 }
 
@@ -790,8 +794,11 @@ function openResendPopupModal(data) {
   document.getElementById('resendModalSubtitle').innerText = `Candidate: ${candName} (${email})`;
   document.getElementById('popupCandidateDisplay').innerText = `${candName} — ${jobTitle} (${email})`;
 
-  document.getElementById('popupSubject').value = `Interview Invitation & Schedule — ${jobTitle} — NonceBlox`;
-  document.getElementById('popupBody').value = `Hi ${candName},\n\nYour interview for the position of ${jobTitle} at NonceBlox has been confirmed.\n\nPlease review the details below. Ensure your availability and join on time.\n\nLocation: Online Google Meet / Zoom\n\nBest regards,\nNonceBlox Hiring Team`;
+  const previewJobEl = document.getElementById('previewJobTitleText');
+  if (previewJobEl) previewJobEl.innerText = jobTitle;
+
+  document.getElementById('popupSubject').value = `Interview Invitation — ${jobTitle}`;
+  document.getElementById('popupBody').value = `Thank you for your interest in the ${jobTitle} role. We would like to invite you for an interview with our team. We've reserved the time for your conversation.`;
 
   document.getElementById('testCopyAlert').style.display = 'none';
   updateLivePreview();

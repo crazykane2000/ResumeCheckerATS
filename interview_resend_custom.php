@@ -33,62 +33,36 @@ if (!$candidateId || !$recipientEmail || !$subject || !$bodyText) {
     exit('Missing required fields.');
 }
 
-// Format Date string if provided
-$whenStr = '';
+require_once __DIR__ . '/lib/interview_email_template.php';
+
+// Fetch candidate name and job title
+$candStmt = $pdo->prepare("SELECT c.name, c.role_title, j.title AS job_title FROM candidates c LEFT JOIN jobs j ON j.id=c.job_id WHERE c.id=? LIMIT 1");
+$candStmt->execute([$candidateId]);
+$candData = $candStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+$candidateName = $candData['name'] ?? 'Candidate';
+$jobTitle = $candData['job_title'] ?? $candData['role_title'] ?? 'Role';
+
+// Determine Date, Time and Scheduling Link
+$dateStr = '06 Oct - 11 Oct 2026';
+$timeStr = 'Choose an available slot';
+$bookingUrl = 'https://nonceblox.com/career.php';
+
 if ($interviewTime !== '') {
-    $whenStr = date('l, d F Y \a\t g:i A', strtotime($interviewTime)) . ' (IST)';
+    $dateStr = date('l, d F Y', strtotime($interviewTime));
+    $timeStr = date('g:i A', strtotime($interviewTime));
 }
 
-// Build Branded NonceBlox HTML Template
-function buildBrandedCustomInterviewHtml(string $subjectTitle, string $message, string $timeLine): string {
-    $logoHeader = '
-        <div style="background:linear-gradient(135deg,#6f45ff 0%,#8d63ff 100%);padding:24px 28px;border-top-left-radius:12px;border-top-right-radius:12px;display:flex;align-items:center;justify-content:space-between;">
-            <span style="font-size:24px;font-weight:900;color:#ffffff;letter-spacing:-0.02em;">NonceBlox</span>
-            <span style="font-size:12px;color:#e0e7ff;font-weight:600;background:rgba(255,255,255,0.2);padding:4px 10px;border-radius:20px;">Careers Hub</span>
-        </div>
-    ';
-
-    $timeBlock = '';
-    if ($timeLine !== '') {
-        $timeBlock = '
-            <div style="margin:20px 0;padding:16px 20px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;color:#4338ca;">
-                <strong style="font-size:13px;display:block;margin-bottom:4px;color:#3730a3;">🗓️ Interview Date & Time:</strong>
-                <span style="font-size:15px;font-weight:700;">' . htmlspecialchars($timeLine) . '</span>
-            </div>
-        ';
+if ($invitationId) {
+    $tokenStmt = $pdo->prepare("SELECT ii.id, ii.status, ib.availability_start, ib.availability_end FROM interview_invitations ii JOIN interview_batches ib ON ib.id=ii.batch_id WHERE ii.id=?");
+    $tokenStmt->execute([$invitationId]);
+    $invRow = $tokenStmt->fetch(PDO::FETCH_ASSOC);
+    if ($invRow && !empty($invRow['availability_start']) && !empty($invRow['availability_end']) && $interviewTime === '') {
+        $dateStr = date('d M', strtotime($invRow['availability_start'])) . ' - ' . date('d M Y', strtotime($invRow['availability_end']));
     }
-
-    $formattedContent = nl2br(htmlspecialchars($message));
-
-    return '<!doctype html>
-    <html>
-    <head><meta charset="utf-8"></head>
-    <body style="margin:0;padding:0;background:#f4f5f9;font-family:Inter,Arial,sans-serif;color:#1e293b;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 14px;">
-            <tr>
-                <td align="center">
-                    <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.05);">
-                        <tr><td>' . $logoHeader . '</td></tr>
-                        <tr>
-                            <td style="padding:32px 28px;font-size:14px;line-height:1.75;color:#334155;">
-                                ' . $timeBlock . '
-                                <div style="font-size:14px;color:#334155;line-height:1.8;">' . $formattedContent . '</div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td style="padding:18px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;border-bottom-left-radius:12px;border-bottom-right-radius:12px;font-size:12px;color:#64748b;text-align:center;">
-                                NonceBlox Hiring & Interview Hub · Official Notice
-                            </td>
-                        </tr>
-                    </table>
-                </td>
-            </tr>
-        </table>
-    </body>
-    </html>';
 }
 
-$htmlPayload = buildBrandedCustomInterviewHtml($subject, $bodyText, $whenStr);
+$htmlPayload = noncebloxInterviewEmailHtml($candidateName, $jobTitle, $dateStr, $timeStr, 'Asia/Kolkata', $bookingUrl, $bodyText);
 
 // Helper function to send email via API or SMTP with NonceBlox fallback
 function deliverCustomInterviewMail(string $targetEmail, string $mailSubject, string $mailBody): bool {

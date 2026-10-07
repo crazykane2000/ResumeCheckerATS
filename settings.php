@@ -60,21 +60,41 @@ $pageTitle = 'Workspace Settings · NonceBlox ATS';
 $pageStyles = '<style>
 .settings-container {
   width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-bottom: 40px;
 }
 .settings-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 24px;
+  background: #ffffff;
+  padding: 24px 28px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 .settings-head h1 {
   font-size: 24px;
-  font-weight: 700;
+  font-weight: 800;
   color: #0f172a;
   margin: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  letter-spacing: -0.02em;
+}
+.settings-head-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: #f3e8ff;
+  color: #7c3aed;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
 }
 .settings-head p {
   color: #64748b;
@@ -85,45 +105,60 @@ $pageStyles = '<style>
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 20px;
+  margin-bottom: 28px;
 }
 .stat-card {
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 18px 20px;
+  padding: 20px 22px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  gap: 18px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
+  border-color: #cbd5e1;
 }
 .stat-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  background: #f1f5f9;
-  color: #7c3aed;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  font-size: 20px;
+  flex-shrink: 0;
 }
+.stat-icon.purple { background: #f3e8ff; color: #7c3aed; }
+.stat-icon.pink { background: #fce7f3; color: #db2777; }
+.stat-icon.emerald { background: #dcfce7; color: #059669; }
+
 .stat-info .num {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 800;
   color: #0f172a;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
 }
 .stat-info .lbl {
   font-size: 12px;
   color: #64748b;
-  font-weight: 500;
+  font-weight: 600;
+  margin-top: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .settings-layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 24px;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
 }
 @media (max-width: 900px) {
   .settings-layout { grid-template-columns: 1fr; }
@@ -135,16 +170,25 @@ $pageStyles = '<style>
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 12px;
-  height: fit-content;
   position: sticky;
   top: 20px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+.settings-nav-header {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 8px 12px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 8px;
 }
 .settings-nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: 12px;
+  padding: 11px 14px;
   border-radius: 8px;
   color: #475569;
   font-size: 13px;
@@ -152,9 +196,29 @@ $pageStyles = '<style>
   text-decoration: none;
   transition: all 0.15s ease;
   margin-bottom: 4px;
+  border-left: 3px solid transparent;
 }
-.settings-nav-item:hover, .settings-nav-item.active {
+.settings-nav-item i {
+  font-size: 15px;
+  width: 18px;
+  text-align: center;
+  color: #64748b;
+  transition: color 0.15s ease;
+}
+.settings-nav-item:hover {
+  background: #f8fafc;
+  color: #7c3aed;
+}
+.settings-nav-item:hover i {
+  color: #7c3aed;
+}
+.settings-nav-item.active {
   background: #f3e8ff;
+  color: #7c3aed;
+  border-left-color: #7c3aed;
+  font-weight: 700;
+}
+.settings-nav-item.active i {
   color: #7c3aed;
 }
 
@@ -162,12 +226,18 @@ $pageStyles = '<style>
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 24px;
+  padding: 28px;
   margin-bottom: 24px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  scroll-margin-top: 24px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.settings-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
 }
 .card-header-title {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
   color: #0f172a;
   margin-bottom: 6px;
@@ -176,17 +246,18 @@ $pageStyles = '<style>
   gap: 10px;
 }
 .card-header-sub {
-  font-size: 12px;
+  font-size: 13px;
   color: #64748b;
-  margin-bottom: 20px;
-  padding-bottom: 14px;
+  margin-bottom: 22px;
+  padding-bottom: 16px;
   border-bottom: 1px solid #f1f5f9;
+  line-height: 1.5;
 }
 
 .form-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 18px;
 }
 .form-grid-2 .full-width {
   grid-column: 1 / -1;
@@ -199,18 +270,20 @@ $pageStyles = '<style>
 .form-label {
   display: block;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   color: #334155;
-  margin-bottom: 6px;
+  margin-bottom: 7px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 .form-input {
   width: 100%;
-  padding: 10px 14px;
+  padding: 11px 14px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   font-size: 13px;
   color: #0f172a;
-  background: #fff;
+  background: #ffffff;
   transition: all 0.15s ease;
 }
 .form-input:focus {
@@ -220,10 +293,10 @@ $pageStyles = '<style>
 }
 
 .btn-purple {
-  background: #7c3aed;
+  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
   color: #ffffff;
   border: 0;
-  padding: 10px 20px;
+  padding: 11px 22px;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
@@ -231,15 +304,20 @@ $pageStyles = '<style>
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  transition: background 0.15s;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 6px rgba(124, 58, 237, 0.22);
 }
-.btn-purple:hover { background: #6d28d9; }
+.btn-purple:hover {
+  background: linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.32);
+  transform: translateY(-1px);
+}
 
 .btn-secondary {
-  background: #f1f5f9;
+  background: #ffffff;
   color: #334155;
   border: 1px solid #cbd5e1;
-  padding: 10px 18px;
+  padding: 11px 20px;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
@@ -248,41 +326,47 @@ $pageStyles = '<style>
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  transition: background 0.15s;
+  transition: all 0.15s ease;
 }
-.btn-secondary:hover { background: #e2e8f0; }
+.btn-secondary:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
 
 .alert-ok, .alert-err {
-  padding: 12px 16px;
-  border-radius: 8px;
+  padding: 14px 18px;
+  border-radius: 10px;
   font-size: 13px;
   font-weight: 600;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.03);
 }
-.alert-ok { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
-.alert-err { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+.alert-ok { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+.alert-err { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
 
 .backup-banner {
   background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
   border: 1px solid #e9d5ff;
-  border-radius: 10px;
-  padding: 18px 20px;
+  border-radius: 12px;
+  padding: 20px 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
+  gap: 20px;
 }
 .backup-banner-copy strong {
   display: block;
-  font-size: 14px;
+  font-size: 15px;
   color: #581c87;
   margin-bottom: 4px;
+  font-weight: 700;
 }
 .backup-banner-copy span {
-  font-size: 12px;
+  font-size: 13px;
   color: #7e22ce;
 }
 
@@ -290,10 +374,10 @@ $pageStyles = '<style>
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-top: 10px;
-  padding: 14px;
+  margin-top: 12px;
+  padding: 16px;
   background: #f8fafc;
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid #e2e8f0;
 }
 .brand-preview-logo {
@@ -309,7 +393,7 @@ require __DIR__ . '/views/partials/header.php';
 <div class="settings-container">
   <div class="settings-head">
     <div>
-      <h1><i class="fa-solid fa-sliders" style="color: #7c3aed;"></i> Workspace Settings</h1>
+      <h1><span class="settings-head-icon"><i class="fa-solid fa-sliders"></i></span> Workspace Settings</h1>
       <p>Manage recruiter profile, organization branding, passwords, integrations, and database backups.</p>
     </div>
   </div>
@@ -331,21 +415,21 @@ require __DIR__ . '/views/partials/header.php';
   <!-- Stats Grid -->
   <div class="stats-grid">
     <div class="stat-card">
-      <div class="stat-icon"><i class="fa-solid fa-users"></i></div>
+      <div class="stat-icon purple"><i class="fa-solid fa-users"></i></div>
       <div class="stat-info">
         <div class="num"><?=(int)$stats['candidates']?></div>
         <div class="lbl">Candidates Registered</div>
       </div>
     </div>
     <div class="stat-card">
-      <div class="stat-icon"><i class="fa-solid fa-heart"></i></div>
+      <div class="stat-icon pink"><i class="fa-solid fa-heart"></i></div>
       <div class="stat-info">
         <div class="num"><?=(int)$stats['profiles']?></div>
         <div class="lbl">Wishlist Profiles</div>
       </div>
     </div>
     <div class="stat-card">
-      <div class="stat-icon"><i class="fa-solid fa-envelope"></i></div>
+      <div class="stat-icon emerald"><i class="fa-solid fa-envelope"></i></div>
       <div class="stat-info">
         <div class="num"><?=(int)$stats['emails']?></div>
         <div class="lbl">Email Batches Sent</div>
@@ -356,12 +440,14 @@ require __DIR__ . '/views/partials/header.php';
   <div class="settings-layout">
     <!-- Sidebar Navigation -->
     <aside class="settings-sidebar">
+      <div class="settings-nav-header">Navigation</div>
       <a href="#profile" class="settings-nav-item active"><i class="fa-regular fa-user"></i> Recruiter Profile</a>
       <a href="#security" class="settings-nav-item"><i class="fa-solid fa-lock"></i> Change Password</a>
       <a href="#branding" class="settings-nav-item"><i class="fa-solid fa-brush"></i> Organization Branding</a>
       <a href="#integrations" class="settings-nav-item"><i class="fa-solid fa-plug"></i> Integrations & APIs</a>
       <a href="#backup" class="settings-nav-item"><i class="fa-solid fa-database"></i> Database Backup</a>
       <a href="#email-testing" class="settings-nav-item"><i class="fa-solid fa-vial"></i> Email Testing</a>
+      <a href="#scheduling" class="settings-nav-item"><i class="fa-solid fa-calendar-check"></i> Interview Scheduling</a>
     </aside>
 
     <!-- Main Content Panels -->
@@ -526,4 +612,35 @@ require __DIR__ . '/views/partials/header.php';
   </div>
 </div>
 
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const navItems = document.querySelectorAll('.settings-nav-item');
+  const sections = document.querySelectorAll('.settings-card[id]');
+
+  function updateActiveNav() {
+    let current = '';
+    const scrollPos = window.pageYOffset || document.documentElement.scrollTop;
+    
+    sections.forEach(section => {
+      const sectionTop = section.offsetTop - 120;
+      if (scrollPos >= sectionTop) {
+        current = section.getAttribute('id');
+      }
+    });
+
+    if (current) {
+      navItems.forEach(item => {
+        item.classList.remove('active');
+        if (item.getAttribute('href') === '#' + current) {
+          item.classList.add('active');
+        }
+      });
+    }
+  }
+
+  window.addEventListener('scroll', updateActiveNav, { passive: true });
+});
+</script>
+
 <?php require __DIR__ . '/views/partials/footer.php'; ?>
+
