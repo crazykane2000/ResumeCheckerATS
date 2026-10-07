@@ -2,13 +2,14 @@
 require_once __DIR__.'/../../lib/auth.php';requireAuth();require_once __DIR__.'/../../lib/branding.php';
 $activePage=$activePage??'scan';$searchPlaceholder=$searchPlaceholder??'Search candidate, skill or role';$headerUser=currentUser();$brand=organizationBrand();$pageTitle=brandedPageTitle($pageTitle??null,$brand);$favicon=$brand['logo_path']?:'data:image/svg+xml,'.rawurlencode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#6f45ff"/><text x="32" y="42" text-anchor="middle" font-size="34" fill="white">N</text></svg>');$pageStyles='<link rel="icon" href="'.htmlspecialchars($favicon,ENT_QUOTES).'">'.($pageStyles??'');
 $nav=[
-  ['dashboard','dashboard.php','fa-chart-pie','Dashboard','Dashboard — Overview & Activity'],
   ['analytics','analytics.php','fa-chart-line','Analytics','Analytics — Hiring Metrics'],
+  ['dashboard','dashboard.php','fa-chart-pie','Dashboard','Dashboard — Overview & Activity'],
+  ['candidates','candidates.php','fa-users','Candidates','Candidates — Applicant Database'],
   ['calendar','interview_calendar.php','fa-calendar-days','Interviews','Interviews — Candidate Slots'],
   ['outreach','outreach.php','fa-paper-plane','Hiring Outreach','Hiring Outreach — Create Campaign'],
   ['outreach_history','outreach_history.php','fa-clock-rotate-left','Outreach History','Outreach History — Campaign Reports'],
-  ['candidates','candidates.php','fa-users','Candidates','Candidates — Applicant Database'],
   ['integrations','integrations.php','fa-plug','Integrations','Integrations — Email & SMTP'],
+  ['scan','index.php','fa-file-arrow-up','Resume Upload','Resume Upload — Parse & Ingest Resume'],
   ['settings','settings.php','fa-gear','Settings','Settings — Account & Branding']
 ];
 $wishlistCount=0;$profileCount=0;try{$s=db()->prepare("SELECT COUNT(*) items,COUNT(DISTINCT wi.profile_id) profiles FROM wishlist_items wi JOIN wishlist_profiles wp ON wp.id=wi.profile_id WHERE wp.user_id=? AND wi.disposition='wishlist'");$s->execute([$headerUser['id']]);$c=$s->fetch();$wishlistCount=(int)($c['items']??0);$profileCount=(int)($c['profiles']??0);}catch(Throwable $e){}
