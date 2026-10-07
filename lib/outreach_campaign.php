@@ -163,7 +163,7 @@ function renderHiringOutreachEmailHtml(string $candidateName, array $jobTitles, 
     $logoHtml = '';
     if ($logoPath !== '') {
         $baseUrl = (isset($_SERVER['HTTP_HOST']) && $_SERVER['HTTP_HOST']) ? (($_SERVER['REQUEST_SCHEME'] ?? 'http') . '://' . $_SERVER['HTTP_HOST'] . '/') : 'http://127.0.0.1:8000/';
-        $fullLogoUrl = str_starts_with($logoPath, 'http') ? $logoPath : ($baseUrl . ltrim($logoPath, '/'));
+        $fullLogoUrl = publicBrandLogoUrl($brand, $baseUrl);
         $logoHtml = '<img src="' . htmlspecialchars($fullLogoUrl, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '" alt="' . $brandName . '" style="max-height:45px; max-width:240px; display:block; object-fit:contain;">';
     } else {
         $logoHtml = '<span style="font-size:20px; font-weight:800; color:#1e1934; letter-spacing:-0.3px;">' . $brandName . '</span>';

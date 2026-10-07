@@ -10,6 +10,25 @@ function organizationBrand(): array {
     } catch(Throwable $e) {}
     return ['name'=>'NonceBlox ATS','domain'=>null,'logo_path'=>null];
 }
+
+function publicBrandLogoUrl(array $brand, string $baseUrl = ''): string {
+    $logoPath = trim((string)($brand['logo_path'] ?? ''));
+    if (str_starts_with($logoPath, 'http://') || str_starts_with($logoPath, 'https://')) {
+        return $logoPath;
+    }
+    $domain = trim((string)($brand['domain'] ?? ''));
+    if (!empty($domain) && !empty($logoPath)) {
+        return 'https://' . rtrim($domain, '/') . '/' . ltrim($logoPath, '/');
+    }
+    if (!empty($baseUrl) && !empty($logoPath)) {
+        $host = parse_url($baseUrl, PHP_URL_HOST);
+        if ($host && !in_array($host, ['localhost', '127.0.0.1', '::1'], true) && !str_starts_with($host, '192.168.') && !str_starts_with($host, '10.')) {
+            return rtrim($baseUrl, '/') . '/' . ltrim($logoPath, '/');
+        }
+    }
+    return 'https://nonceblox.com/logos.png';
+}
+
 function brandedPageTitle(?string $title,array $brand): string {
     $name=trim((string)($brand['name']??''))?:'NonceBlox ATS';
     $title=trim((string)$title);

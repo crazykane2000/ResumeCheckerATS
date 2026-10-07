@@ -4,8 +4,9 @@ function noncebloxInterviewEmailHtml(string $candidate,string $job,string $date,
     static $template=null;
     if($template===null){$template=@file_get_contents(__DIR__.'/../assets/interview_email_template.html');if($template===false||trim($template)==='')throw new RuntimeException('Interview email template is unavailable.');}
     $brand=organizationBrand();$brandName=trim((string)($brand['name']??''))?:'NonceBlox';$safe=fn(string $value)=>htmlspecialchars($value,ENT_QUOTES|ENT_HTML5,'UTF-8');
+    $logoUrl = publicBrandLogoUrl($brand);
     $source=$bookingUrl!==''?str_replace(['mailto:?subject=Interview Confirmation - {{job_title}}','Confirm by Replying'],['{{booking_url}}','Choose interview slot'],$template):$template;
-    $source=str_replace(['NONCEBLOX','NonceBlox','ResumeIQ'],[strtoupper($brandName),$safe($brandName),$safe($brandName)],$source);
+    $source=str_replace(['https://nonceblox.com/logos.png','NONCEBLOX','NonceBlox','ResumeIQ'],[$logoUrl,strtoupper($brandName),$safe($brandName),$safe($brandName)],$source);
     if(trim($customMessage)!==''){
         $source=preg_replace('/<div class="nbx-body-text"[^>]*>.*?<\/div>/s','<div class="nbx-body-text" style="max-width:615px;padding-top:14px;font-size:16px;line-height:27px;color:#605c68;">'.nl2br($safe($customMessage)).'</div>',$source);
     }
