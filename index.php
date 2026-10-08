@@ -156,6 +156,49 @@ function extractCountryInfo(string $text): array {
     return ['country_name' => '', 'country_code' => ''];
 }
 
+function extractSalaryInfo(string $text): array {
+    $currentCtc = null;
+    $expectedCtc = null;
+
+    // Expected CTC regex
+    if (preg_match('/(?:expected|exp\.?|target)\s*(?:ctc|salary|package|remuneration)?\s*[:\-]?\s*(?:inr|rs\.?|₹|\$|€|£)?\s*(\d+(?:\.\d+)?)\s*(lpa|lacs|lakhs|k|k\b|p\.a\.|\/year|\/yr)?/i', $text, $m)) {
+        $val = (float)$m[1];
+        $unit = strtolower($m[2] ?? '');
+        if (in_array($unit, ['lpa', 'lacs', 'lakhs', 'p.a.'], true)) {
+            $expectedCtc = $val;
+        } elseif ($unit === 'k') {
+            $expectedCtc = ($val >= 100) ? round($val / 100, 2) : round(($val * 1000) / 100000, 2);
+        } elseif ($val > 10000) {
+            $expectedCtc = round($val / 100000, 2);
+        } else {
+            $expectedCtc = $val;
+        }
+    }
+
+    // Current CTC regex
+    if (preg_match('/(?:current|present|c\.?)\s*(?:ctc|salary|package|remuneration)?\s*[:\-]?\s*(?:inr|rs\.?|₹|\$|€|£)?\s*(\d+(?:\.\d+)?)\s*(lpa|lacs|lakhs|k|k\b|p\.a\.|\/year|\/yr)?/i', $text, $m)) {
+        $val = (float)$m[1];
+        $unit = strtolower($m[2] ?? '');
+        if (in_array($unit, ['lpa', 'lacs', 'lakhs', 'p.a.'], true)) {
+            $currentCtc = $val;
+        } elseif ($unit === 'k') {
+            $currentCtc = ($val >= 100) ? round($val / 100, 2) : round(($val * 1000) / 100000, 2);
+        } elseif ($val > 10000) {
+            $currentCtc = round($val / 100000, 2);
+        } else {
+            $currentCtc = $val;
+        }
+    }
+
+    if ($currentCtc === null && $expectedCtc === null) {
+        if (preg_match('/\b(?:ctc|salary|package)\s*[:\-]?\s*(?:inr|rs\.?|₹|\$|€|£)?\s*(\d+(?:\.\d+)?)\s*(lpa|lacs|lakhs)\b/i', $text, $m)) {
+            $currentCtc = (float)$m[1];
+        }
+    }
+
+    return ['current_ctc' => $currentCtc, 'expected_ctc' => $expectedCtc];
+}
+
 function commandExists(string $cmd): bool {
     if (stripos(PHP_OS, 'WIN') === 0) {
         $out = shell_exec("where " . escapeshellarg($cmd) . " 2>NUL");
@@ -464,6 +507,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $nameInfo = extractCandidateNameInfo($extractedText);
             $countryInfo = extractCountryInfo($extractedText);
+            $salaryInfo = extractSalaryInfo($extractedText);
             $candName = $nameInfo['name'];
             $candRole = $nameInfo['role'];
 
@@ -505,6 +549,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'phone'             => $phone,
                 'country_name'      => $countryInfo['country_name'],
                 'country_code'      => $countryInfo['country_code'],
+                'current_ctc'       => $salaryInfo['current_ctc'],
+                'expected_ctc'      => $salaryInfo['expected_ctc'],
                 'detected_skills'   => $detectedSkills,
                 'match_score'       => $score,
                 'jd_keywords'       => $jdTokens,

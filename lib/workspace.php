@@ -202,11 +202,14 @@ function saveCandidateRecord(array $result, ?int $jobId = null): void {
 
     $id = $existingId ?: ('CAN-'.substr(md5($result['stored_filename']), 0, 8));
 
-    $record=['id'=>$id,'job_id'=>$jobId,'name'=>$name,'role'=>$role,'email'=>$result['email'],'phone'=>$result['phone'],'country_code'=>$cCode,'country_name'=>$cName,'score'=>$result['match_score'],'skills'=>$result['detected_skills'],'stage'=>'Applied','source'=>'Direct upload','created_at'=>$result['created_at'],'file'=>$result['stored_filename'],'experience'=>$result['experience'],'analysis'=>['matched_keywords'=>$result['matched_keywords']??[],'missing_keywords'=>$result['missing_keywords']??[],'jd_keywords'=>$result['jd_keywords']??[]]];
+    $currentCtc = isset($result['current_ctc']) && $result['current_ctc'] !== null ? (float)$result['current_ctc'] : null;
+    $expectedCtc = isset($result['expected_ctc']) && $result['expected_ctc'] !== null ? (float)$result['expected_ctc'] : null;
+
+    $record=['id'=>$id,'job_id'=>$jobId,'name'=>$name,'role'=>$role,'email'=>$result['email'],'phone'=>$result['phone'],'country_code'=>$cCode,'country_name'=>$cName,'current_ctc'=>$currentCtc,'expected_ctc'=>$expectedCtc,'score'=>$result['match_score'],'skills'=>$result['detected_skills'],'stage'=>'Applied','source'=>'Direct upload','created_at'=>$result['created_at'],'file'=>$result['stored_filename'],'experience'=>$result['experience'],'analysis'=>['matched_keywords'=>$result['matched_keywords']??[],'missing_keywords'=>$result['missing_keywords']??[],'jd_keywords'=>$result['jd_keywords']??[]]];
     $items=array_values(array_filter($items,fn($item)=>($item['id']??'')!==$record['id'])); $items[]=$record; saveWorkspaceData('candidates.json',$items);
     
-    $sql='INSERT INTO candidates(id,job_id,name,role_title,email,phone,country_code,country_name,score,stage,source_name,skills_json,experience_json,analysis_json,stored_file,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE job_id=VALUES(job_id),name=VALUES(name),role_title=VALUES(role_title),email=VALUES(email),phone=VALUES(phone),country_code=VALUES(country_code),country_name=VALUES(country_name),score=VALUES(score),skills_json=VALUES(skills_json),experience_json=VALUES(experience_json),analysis_json=VALUES(analysis_json),stored_file=VALUES(stored_file)';
-    db()->prepare($sql)->execute([$record['id'],$record['job_id'],$record['name'],$record['role'],$record['email'],$record['phone'],$record['country_code'],$record['country_name'],$record['score'],$record['stage'],$record['source'],json_encode($record['skills']),json_encode($record['experience']),json_encode($record['analysis']),$record['file'],$record['created_at']]);
+    $sql='INSERT INTO candidates(id,job_id,name,role_title,email,phone,country_code,country_name,current_ctc,expected_ctc,score,stage,source_name,skills_json,experience_json,analysis_json,stored_file,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE job_id=VALUES(job_id),name=VALUES(name),role_title=VALUES(role_title),email=VALUES(email),phone=VALUES(phone),country_code=VALUES(country_code),country_name=VALUES(country_name),current_ctc=VALUES(current_ctc),expected_ctc=VALUES(expected_ctc),score=VALUES(score),skills_json=VALUES(skills_json),experience_json=VALUES(experience_json),analysis_json=VALUES(analysis_json),stored_file=VALUES(stored_file)';
+    db()->prepare($sql)->execute([$record['id'],$record['job_id'],$record['name'],$record['role'],$record['email'],$record['phone'],$record['country_code'],$record['country_name'],$record['current_ctc'],$record['expected_ctc'],$record['score'],$record['stage'],$record['source'],json_encode($record['skills']),json_encode($record['experience']),json_encode($record['analysis']),$record['file'],$record['created_at']]);
 }
 function countryCodeFromName(?string $code, ?string $name): string {
     if(trim((string)$code)!=='')return strtoupper(trim((string)$code));
@@ -225,7 +228,7 @@ function loadCandidateRecords(): array {
         $rows=db()->query('SELECT c.*,j.title job_title,j.description job_description,j.min_experience job_min_experience,j.max_experience job_max_experience,j.required_skills_json job_required_skills_json,j.preferred_skills_json job_preferred_skills_json FROM candidates c LEFT JOIN jobs j ON j.id=c.job_id ORDER BY c.created_at DESC')->fetchAll();
         $openJobsCache=null;
         if($rows)return array_map(function($r) use (&$openJobsCache){
-            $candidate=['id'=>$r['id'],'job_id'=>$r['job_id']??null,'name'=>$r['name'],'role'=>$r['role_title'],'email'=>$r['email'],'phone'=>$r['phone'],'country_code'=>countryCodeFromName($r['country_code'],$r['country_name']),'country_name'=>$r['country_name'],'legacy_score'=>(int)$r['score'],'stage'=>$r['stage'],'source'=>normalizeCandidateSource($r['source_name']??''),'skills'=>json_decode($r['skills_json']??'[]',true)?:[],'experience'=>json_decode($r['experience_json']??'{}',true)?:[],'analysis'=>json_decode($r['analysis_json']??'{}',true)?:[],'file'=>$r['stored_file'],'source_url'=>$r['source_url']??null,'created_at'=>$r['created_at']];
+            $candidate=['id'=>$r['id'],'job_id'=>$r['job_id']??null,'name'=>$r['name'],'role'=>$r['role_title'],'email'=>$r['email'],'phone'=>$r['phone'],'country_code'=>countryCodeFromName($r['country_code'],$r['country_name']),'country_name'=>$r['country_name'],'current_ctc'=>$r['current_ctc']!==null?(float)$r['current_ctc']:null,'expected_ctc'=>$r['expected_ctc']!==null?(float)$r['expected_ctc']:null,'legacy_score'=>(int)$r['score'],'stage'=>$r['stage'],'source'=>normalizeCandidateSource($r['source_name']??''),'skills'=>json_decode($r['skills_json']??'[]',true)?:[],'experience'=>json_decode($r['experience_json']??'{}',true)?:[],'analysis'=>json_decode($r['analysis_json']??'{}',true)?:[],'file'=>$r['stored_file'],'source_url'=>$r['source_url']??null,'created_at'=>$r['created_at']];
             $job=$r['job_id']?['id'=>(int)$r['job_id'],'title'=>$r['job_title'],'description'=>$r['job_description'],'min_experience'=>$r['job_min_experience'],'max_experience'=>$r['job_max_experience'],'required_skills_json'=>$r['job_required_skills_json'],'preferred_skills_json'=>$r['job_preferred_skills_json']]:null;
             if(!$job && !empty($candidate['skills'])){
                 if($openJobsCache===null){
@@ -244,6 +247,8 @@ function loadCandidateRecords(): array {
     }catch(Throwable $e){}
     return array_map(function(array $candidate): array {
         $candidate['job_id']=$candidate['job_id']??null;
+        $candidate['current_ctc']=isset($candidate['current_ctc'])&&$candidate['current_ctc']!==null?(float)$candidate['current_ctc']:null;
+        $candidate['expected_ctc']=isset($candidate['expected_ctc'])&&$candidate['expected_ctc']!==null?(float)$candidate['expected_ctc']:null;
         $candidate['legacy_score']=(int)($candidate['score']??0);
         $candidate['job']=$candidate['job']??null;
         $candidate['source']=normalizeCandidateSource($candidate['source']??'');

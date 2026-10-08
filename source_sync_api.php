@@ -21,6 +21,17 @@ function remoteResumeUrl(?string $file): ?string {
     return $name===''?null:'https://nonceblox.com/uploads/'.rawurlencode($name);
 }
 
+function parseCtcValue(?string $val): ?float {
+    $v = trim((string)$val);
+    if ($v === '') return null;
+    if (preg_match('/(\d+(?:\.\d+)?)/', $v, $m)) {
+        $num = (float)$m[1];
+        if ($num > 10000) return round($num / 100000, 2);
+        return $num;
+    }
+    return null;
+}
+
 try {
     if($_SERVER['REQUEST_METHOD']!=='POST')failSync('Method not allowed.',405);
     if(!verifyCsrf($_POST['csrf']??''))failSync('Your session expired. Refresh and try again.',403);
@@ -38,10 +49,10 @@ try {
         foreach($jobs as $job){$upsertJob->execute([(int)$job['id'],trim($job['title']),$job['desc'],$job['location']?:null]);$findJob->execute([(int)$job['id']]);$jobMap[(int)$job['id']]=(int)$findJob->fetchColumn();$titleMap[normalizedJobTitle($job['title'])]=$jobMap[(int)$job['id']];}
         $_SESSION['source_sync_jobs'][$syncId]=count($jobs);$_SESSION['source_sync_job_map'][$syncId]=$jobMap;$_SESSION['source_sync_title_map'][$syncId]=$titleMap;
     }
-    $query=$remote->prepare('SELECT id,fname,lname,email,phone,job_position,`date`,file,country FROM career_request ORDER BY id ASC LIMIT :limit OFFSET :offset');
+    $query=$remote->prepare('SELECT id,fname,lname,email,phone,job_position,`date`,file,country,ctc,exctc FROM career_request ORDER BY id ASC LIMIT :limit OFFSET :offset');
     $query->bindValue(':limit',$limit,PDO::PARAM_INT);$query->bindValue(':offset',$offset,PDO::PARAM_INT);$query->execute();$rows=$query->fetchAll();
-    $jobMap=$_SESSION['source_sync_job_map'][$syncId]??[];$titleMap=$_SESSION['source_sync_title_map'][$syncId]??[];$upsert=$local->prepare('INSERT INTO candidates(id,job_id,name,role_title,email,phone,country_name,score,stage,source_name,skills_json,experience_json,analysis_json,source_url,stored_file,created_at) VALUES(?,?,?,?,?,?,?,0,\'Applied\',\'NonceBlox website\',\'[]\',\'{}\',\'{}\',?,?,?) ON DUPLICATE KEY UPDATE job_id=VALUES(job_id),name=VALUES(name),role_title=VALUES(role_title),email=VALUES(email),phone=VALUES(phone),country_name=VALUES(country_name),source_url=VALUES(source_url),stored_file=VALUES(stored_file)');
-    foreach($rows as $row){$id='WEB-'.substr(hash('sha256','nonceblox-career-'.$row['id']),0,20);$name=trim($row['fname'].' '.$row['lname'])?:'Website applicant';$created=date('Y-m-d H:i:s',strtotime($row['date']?:'now'));$url=remoteResumeUrl($row['file']??null);$upsert->execute([$id,$jobMap[(int)($row['career_id']??0)]??$titleMap[normalizedJobTitle($row['job_position']??'')]??null,$name,$row['job_position']?:'Candidate',$row['email']?:null,$row['phone']?:null,$row['country']?:null,$url,$url,$created]);}
+    $jobMap=$_SESSION['source_sync_job_map'][$syncId]??[];$titleMap=$_SESSION['source_sync_title_map'][$syncId]??[];$upsert=$local->prepare('INSERT INTO candidates(id,job_id,name,role_title,email,phone,country_name,current_ctc,expected_ctc,score,stage,source_name,skills_json,experience_json,analysis_json,source_url,stored_file,created_at) VALUES(?,?,?,?,?,?,?,?,?,0,\'Applied\',\'NonceBlox website\',\'[]\',\'{}\',\'{}\',?,?,?) ON DUPLICATE KEY UPDATE job_id=VALUES(job_id),name=VALUES(name),role_title=VALUES(role_title),email=VALUES(email),phone=VALUES(phone),country_name=VALUES(country_name),current_ctc=VALUES(current_ctc),expected_ctc=VALUES(expected_ctc),source_url=VALUES(source_url),stored_file=VALUES(stored_file)');
+    foreach($rows as $row){$id='WEB-'.substr(hash('sha256','nonceblox-career-'.$row['id']),0,20);$name=trim($row['fname'].' '.$row['lname'])?:'Website applicant';$created=date('Y-m-d H:i:s',strtotime($row['date']?:'now'));$url=remoteResumeUrl($row['file']??null);$cCtc=parseCtcValue($row['ctc']??null);$eCtc=parseCtcValue($row['exctc']??null);$upsert->execute([$id,$jobMap[(int)($row['career_id']??0)]??$titleMap[normalizedJobTitle($row['job_position']??'')]??null,$name,$row['job_position']?:'Candidate',$row['email']?:null,$row['phone']?:null,$row['country']?:null,$cCtc,$eCtc,$url,$url,$created]);}
     $processed=min($total,$offset+count($rows));$complete=$processed>=$total;$jobCount=(int)($_SESSION['source_sync_jobs'][$syncId]??0);
     if($complete&&!($_SESSION['completed_source_syncs'][$syncId]??false)){$meta=['sync_id'=>$syncId,'jobs'=>$jobCount,'applicants'=>$total];$local->prepare('INSERT INTO audit_events(user_id,action,entity_type,entity_id,metadata_json) VALUES(?,?,?,?,?)')->execute([currentUser()['id']??null,'source_sync_completed','integration','nonceblox_mysql',json_encode($meta)]);$_SESSION['completed_source_syncs'][$syncId]=true;unset($_SESSION['source_sync_jobs'][$syncId],$_SESSION['source_sync_job_map'][$syncId],$_SESSION['source_sync_title_map'][$syncId]);}
     echo json_encode(['ok'=>true,'processed'=>$processed,'total'=>$total,'percent'=>$total?(int)round($processed/$total*100):100,'complete'=>$complete,'jobs'=>$jobCount]);
