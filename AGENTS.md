@@ -8,37 +8,53 @@ The intended product scope includes explainable job-match scoring, matched and m
 
 ## Current architecture
 
-- Backend: PHP 8+ with a single web entry point, `index.php`.
-- Frontend: server-rendered HTML with inline CSS and small vanilla JavaScript helpers in `index.php`.
-- Dependency management: Composer. The only direct package is `smalot/pdfparser`.
-- Persistence: uploaded files are stored under `uploads/`; there is no database, model layer, API, authentication, email integration, or environment/configuration layer yet.
-- Local environment: Windows/Laragon is preferred. PHP must provide `mbstring`; DOCX extraction additionally needs `zip`/`ZipArchive`.
+- Backend: PHP 8+ with PDO MySQL persistence and structured modular libraries under `lib/`.
+- Frontend: server-rendered responsive HTML with vanilla JavaScript, modern dashboard CSS (`assets/app.css`), and shared authenticated layouts (`views/partials/header.php`, `views/partials/footer.php`).
+- Key subsystems:
+  - Resume Parsing & Ingestion: `index.php` (PDF, DOCX, DOC with automatic OCR.space cloud fallback for scanned PDFs).
+  - Hiring Pipeline: `pipeline.php` (drag-and-drop Kanban, batch/job filters, candidate profile overlay drawer, stage transitions, evaluation notes).
+  - Pipeline API & Drawer: `pipeline_lifecycle_api.php` (drawer candidate details, evaluation notes CRUD, stage email dispatches).
+  - Candidate Evaluation Notes: `candidate_notes` table (interview round feedback, strengths, recommendations, author, timestamps).
+  - Lifecycle Email Service: `lib/lifecycle_mailer.php` (NonceBlox branded templates for 6 hiring stages with dual API/SMTP dispatch).
+  - Shortlist & Wishlist: `wishlist.php` (ranking, disposition, email previews).
+  - Candidate Intelligence & Detail: `candidates.php`, `candidate_detail.php`, `temp_evidence.php`.
+  - Interview Scheduling & Calendar: `interview_invite.php`, `interview_calendar.php`, `public_interview_api.php`.
+  - Remote Sync: `source_sync.php` (NonceBlox jobs & applicant synchronization).
+  - Dashboard & Analytics: `dashboard.php`, `analytics.php`.
+- Persistence: MySQL via PDO prepared statements (`config/database.php`).
+- Dependency management: Composer (`smalot/pdfparser`).
+- Local environment: Windows/Laragon with PHP 8.1+, PDO MySQL, `mbstring`, `fileinfo`, `curl`, and `zip`.
 
 Request flow:
 
-1. `index.php` accepts one multipart resume and a JD.
-2. It checks upload success, extension (`pdf`, `docx`, or `doc`), and an 8 MB size limit.
-3. It saves the file with a generated name under `uploads/`.
-4. It routes extraction by extension.
+1. `index.php` accepts multipart resumes and a JD (or links to an existing job).
+2. It validates upload success, extension (`pdf`, `docx`, or `doc`), and the 8 MB size limit.
+3. It saves the file under `uploads/` with a sanitized server-side name.
+4. It routes extraction by extension:
+   - PDF: parses via `smalot/pdfparser` / `pdftotext`. If text < 40 chars, triggers OCR.space API fallback.
+   - DOCX: extracts via `ZipArchive`.
+   - DOC: parses via Antiword / Catdoc / LibreOffice.
 5. It extracts email, phone, and normalized skills from available text.
-6. It computes a basic, unweighted JD-token coverage percentage.
-7. It renders metadata, processing status, matches, gaps, and raw extracted text.
+6. It computes explainable JD match coverage.
+7. It creates/updates the candidate record in MySQL, linking it to the pipeline stage.
+8. It renders metadata, processing status, matches, gaps, and raw extracted text.
 
 ## Important files and directories
 
-- `index.php`: all production extraction, upload, matching, rendering, CSS, and JavaScript. Treat changes here as high impact.
-- `composer.json` / `composer.lock`: dependency declaration and reproducible versions.
-- `README.txt`: setup instructions and the proof-of-concept feature boundaries.
-- `test_extraction.php`: CLI extraction smoke test. It duplicates parser functions from `index.php`, so keep that drift risk in mind.
-- `test_form_post.php`: CLI scoring/contact smoke script; requiring `index.php` also emits the page HTML.
-- `create_test_samples.php` and `create_valid_pdfs.php`: fixture generators, not runtime application entry points.
-- `test_samples/`: deliberately generated PDF, DOCX, scanned-PDF, and legacy-DOC fixtures.
-- `uploads/`: runtime candidate documents. Its contents are sensitive and must not be committed.
-- `vendor/`: Composer-generated dependencies; do not edit or commit it.
+- `index.php`: upload, parsing, extraction with OCR.space fallback, basic scoring, and scan result workflow.
+- `pipeline.php` / `pipeline_lifecycle_api.php`: Kanban hiring pipeline with Batch/Job filters, Candidate Profile Overlay Drawer, and stage action handling.
+- `lib/lifecycle_mailer.php`: NonceBlox branded lifecycle email service (Welcome, Screening, Round 1, Round 2, Offer, Rejection) with dual API/SMTP dispatch.
+- `candidates.php` / `candidate_detail.php`: candidate browsing, detail dossier, and stage actions.
+- `temp_evidence.php` / `lib/temp_evidence.php`: deterministic evidence analysis UI and scoring rules.
+- `database/migrations/20261014_candidate_notes.sql`: schema for interview evaluation notes.
+- `composer.json` / `composer.lock`: dependency declaration (`smalot/pdfparser`).
+- `test_extraction.php`: CLI extraction smoke test with OCR fallback.
+- `test_form_post.php`: CLI scoring/contact smoke script.
+- `uploads/`: runtime candidate documents (sensitive, never committed).
 
 ## Parser behavior
 
-- PDF: uses `smalot/pdfparser`; falls back to the `pdftotext` CLI when available. Text shorter than 40 characters is flagged as requiring OCR. OCR itself is not implemented.
+- PDF: uses `smalot/pdfparser`; falls back to the `pdftotext` CLI when available. When extracted text is shorter than 40 characters (e.g. image-only / scanned documents), it automatically triggers OCR fallback via the OCR.space cloud API (`https://api.ocr.space/parse/image`), extracting raw text and setting `ocr_used => true`.
 - DOCX: reads `word/document.xml` through PHP `ZipArchive`; headers, footers, text boxes, and some complex layouts may not be captured.
 - DOC: attempts `antiword`, then `catdoc`, then headless LibreOffice/`soffice`. It cannot parse legacy DOC without one of those external tools.
 - All extraction results return text, an OCR flag, and an error. Never convert an extraction failure into an empty success or invent missing content.
