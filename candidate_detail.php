@@ -502,6 +502,9 @@ require __DIR__.'/views/partials/header.php';
     <div class="cd2-toolbar-group">
         <a class="btn btn-primary" target="_blank" href="resume_file.php?id=<?=urlencode($candidate['id'])?>"><i class="fa-solid fa-eye"></i> View Resume</a>
         <a class="btn" href="resume_file.php?id=<?=urlencode($candidate['id'])?>&download=1"><i class="fa-solid fa-download"></i> Download PDF</a>
+        <button type="button" class="btn" style="background:#7c3aed;color:#ffffff;font-weight:700;display:inline-flex;align-items:center;gap:6px;" onclick="openDetailLifecycleModal()">
+            <i class="fa-solid fa-paper-plane"></i> Stage Action & Mail
+        </button>
         <?php if(!empty($candidate['source_url'])):?>
             <a class="btn" target="_blank" rel="noopener noreferrer" href="<?=htmlspecialchars($candidate['source_url'])?>"><i class="fa-solid fa-arrow-up-right-from-square"></i> Original Source</a>
         <?php endif?>
@@ -901,5 +904,172 @@ require __DIR__.'/views/partials/header.php';
         <?php endif?>
     </article>
 </section>
+
+<!-- Lifecycle Mail & Stage Transition Modal for Candidate Profile -->
+<div class="lifecycle-modal-backdrop" id="detailStageModal" style="position:fixed;inset:0;background:rgba(15,23,42,0.65);backdrop-filter:blur(4px);z-index:999;display:none;align-items:center;justify-content:center;padding:20px;">
+  <div style="width:100%;max-width:960px;max-height:92vh;background:#fff;border-radius:14px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);display:flex;flex-direction:column;overflow:hidden;">
+    
+    <div style="padding:18px 24px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h3 style="margin:0;font-size:17px;font-weight:800;color:#0f172a;display:flex;align-items:center;gap:8px;">
+          <i class="fa-solid fa-paper-plane" style="color:#7c3aed;"></i>
+          <span>Send Stage Email · <?=htmlspecialchars($d['name'])?></span>
+        </h3>
+        <p style="margin:2px 0 0;font-size:12px;color:#64748b;">
+          Current Stage: <strong style="color:#7c3aed;"><?=htmlspecialchars($candidate['stage'] ?? 'Applied')?></strong> · Target Role: <?=htmlspecialchars($candidate['job_title'] ?? $d['role'])?>
+        </p>
+      </div>
+      <button type="button" style="background:transparent;border:none;font-size:18px;color:#64748b;cursor:pointer;padding:6px;" onclick="closeDetailLifecycleModal()">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:46% 54%;flex:1;overflow:hidden;min-height:480px;">
+      <div style="padding:22px;border-right:1px solid #e2e8f0;overflow-y:auto;display:flex;flex-direction:column;gap:14px;">
+        <div>
+          <label style="display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px;">Select Lifecycle Stage & Email Template:</label>
+          <select id="detailTemplateSelect" style="width:100%;height:40px;border:1px solid #cbd5e1;border-radius:8px;padding:0 10px;font-size:13px;font-weight:600;color:#1e293b;outline:none;" onchange="onDetailTemplateChanged()">
+            <option value="welcome">Applied · Application Received (Welcome)</option>
+            <option value="screening">Screening · Profile Shortlisted</option>
+            <option value="round1" selected>Interview · Round 1 (Screening / Technical)</option>
+            <option value="round2">Interview · Round 2 (Advanced / Leadership)</option>
+            <option value="offer">Offer · Selection & Employment Offer</option>
+            <option value="rejected">Rejected · Respectful Rejection</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px;">Recipient Email:</label>
+          <input type="email" id="detailRecipientEmail" style="width:100%;height:40px;border:1px solid #cbd5e1;border-radius:8px;padding:0 10px;font-size:13px;color:#64748b;background:#f8fafc;" value="<?=htmlspecialchars($candidate['email'] ?? '')?>" readonly>
+        </div>
+
+        <div>
+          <label style="display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px;">Subject Line:</label>
+          <input type="text" id="detailSubject" style="width:100%;height:40px;border:1px solid #cbd5e1;border-radius:8px;padding:0 10px;font-size:13px;font-weight:600;color:#0f172a;" oninput="updateDetailPreviewFromInputs()">
+        </div>
+
+        <div style="flex:1;display:flex;flex-direction:column;">
+          <label style="display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px;">Custom Remarks / Note:</label>
+          <textarea id="detailBodyText" style="flex:1;min-height:130px;width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-family:inherit;font-size:13px;line-height:1.6;resize:vertical;" oninput="updateDetailPreviewFromInputs()"></textarea>
+        </div>
+      </div>
+
+      <div style="background:#f8fafc;display:flex;flex-direction:column;overflow:hidden;">
+        <div style="padding:10px 18px;background:#fff;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:700;color:#64748b;display:flex;justify-content:space-between;">
+          <span><i class="fa-solid fa-eye" style="color:#7c3aed;"></i> Live Branded Preview</span>
+          <span style="font-size:11px;background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:10px;font-weight:700;">NonceBlox Template</span>
+        </div>
+        <iframe id="detailPreviewIframe" style="flex:1;width:100%;height:100%;border:0;background:#f8fafc;"></iframe>
+      </div>
+    </div>
+
+    <div style="padding:16px 24px;background:#fff;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
+      <button type="button" class="btn" onclick="closeDetailLifecycleModal()">Cancel</button>
+      <div style="display:flex;gap:10px;">
+        <button type="button" class="btn" id="btnDetailMoveOnly" onclick="executeDetailStageTransition(false)">
+          <i class="fa-solid fa-arrows-turn-to-dots"></i> Change Stage Only (No Mail)
+        </button>
+        <button type="button" class="btn" id="btnDetailSendAndMove" style="background:#7c3aed;color:#fff;font-weight:700;" onclick="executeDetailStageTransition(true)">
+          <i class="fa-solid fa-paper-plane"></i> Send Branded Email & Update Stage
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const DETAIL_CANDIDATE_ID = '<?=htmlspecialchars($candidate['id'], ENT_QUOTES)?>';
+const DETAIL_CSRF_TOKEN = '<?=csrfToken()?>';
+
+function openDetailLifecycleModal() {
+  const modal = document.getElementById('detailStageModal');
+  modal.style.display = 'flex';
+  onDetailTemplateChanged();
+}
+
+function closeDetailLifecycleModal() {
+  document.getElementById('detailStageModal').style.display = 'none';
+}
+
+async function onDetailTemplateChanged() {
+  const tplKey = document.getElementById('detailTemplateSelect').value;
+  const stageMap = {
+    'welcome': 'Applied',
+    'screening': 'Screening',
+    'round1': 'Interview',
+    'round2': 'Interview',
+    'offer': 'Offer',
+    'rejected': 'Rejected'
+  };
+  const targetStage = stageMap[tplKey] || 'Interview';
+
+  try {
+    const res = await fetch(`pipeline_lifecycle_api.php?action=get_preview&candidate_id=${encodeURIComponent(DETAIL_CANDIDATE_ID)}&stage=${encodeURIComponent(targetStage)}&template_key=${encodeURIComponent(tplKey)}`);
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById('detailSubject').value = data.subject;
+      document.getElementById('detailBodyText').value = data.body_text;
+      document.getElementById('detailPreviewIframe').srcdoc = data.html;
+    }
+  } catch (e) {}
+}
+
+function updateDetailPreviewFromInputs() {
+  const iframe = document.getElementById('detailPreviewIframe');
+  if (!iframe.contentDocument) return;
+  const doc = iframe.contentDocument;
+  const customMessage = document.getElementById('detailBodyText').value;
+  const bodyHolder = doc.querySelector('div[style*="line-height:1.8"]') || doc.querySelector('div[style*="line-height: 1.8"]');
+  if (bodyHolder && customMessage.trim() !== '') {
+    bodyHolder.innerHTML = customMessage.replace(/\n/g, '<br>');
+  }
+}
+
+async function executeDetailStageTransition(sendEmail) {
+  const tplKey = document.getElementById('detailTemplateSelect').value;
+  const stageMap = {
+    'welcome': 'Applied',
+    'screening': 'Screening',
+    'round1': 'Interview',
+    'round2': 'Interview',
+    'offer': 'Offer',
+    'rejected': 'Rejected'
+  };
+  const targetStage = stageMap[tplKey] || 'Interview';
+
+  const sendBtn = document.getElementById('btnDetailSendAndMove');
+  const moveBtn = document.getElementById('btnDetailMoveOnly');
+  sendBtn.disabled = true;
+  moveBtn.disabled = true;
+
+  try {
+    const response = await fetch('pipeline_lifecycle_api.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        csrf: DETAIL_CSRF_TOKEN,
+        candidate_id: DETAIL_CANDIDATE_ID,
+        stage: targetStage,
+        send_email: sendEmail ? 1 : 0,
+        template_key: tplKey,
+        subject: document.getElementById('detailSubject').value,
+        message_text: document.getElementById('detailBodyText').value
+      })
+    });
+
+    const res = await response.json();
+    if (!res.ok) throw new Error(res.error || 'Failed');
+
+    alert(sendEmail ? 'Email dispatched and stage updated!' : 'Stage updated successfully!');
+    location.reload();
+  } catch (err) {
+    alert('Error: ' + err.message);
+  } finally {
+    sendBtn.disabled = false;
+    moveBtn.disabled = false;
+  }
+}
+</script>
 
 <?php require __DIR__.'/views/partials/footer.php'; ?>
