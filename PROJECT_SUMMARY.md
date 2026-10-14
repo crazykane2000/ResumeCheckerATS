@@ -38,8 +38,8 @@ The current user table still has a simple `role` column. A complete granular per
 - DOCX extraction reads `word/document.xml` through `ZipArchive`.
 - DOC extraction tries Antiword, Catdoc, and headless LibreOffice.
 - Extracts email, phone, normalized skills, job-date ranges, experience estimates, and employment gaps.
-- Preserves parser errors and flags short/image-only PDFs as requiring OCR.
-- OCR itself is not implemented.
+- Preserves parser errors and automatically triggers OCR.space API fallback (`https://api.ocr.space/parse/image`) for scanned or image-only PDFs when extracted text is less than 40 characters.
+- Extracted OCR text is normalized and flagged with `ocr_used => true`.
 
 ### Explainable matching
 
@@ -72,8 +72,20 @@ These scores are explainable screening aids, not universal ATS scores or hiring 
 - Jobs are first-class MySQL records with external IDs, public URLs, location, employment type, experience limits, minimum commitment, required skills, preferred skills, and status.
 - Candidates are assigned to jobs through `candidates.job_id`.
 - Pipeline stages are Applied, Screening, Interview, Offer, and Rejected.
-- Drag-and-drop stage changes save server-side and survive refresh.
-- Dashboard job cards show applicant, wishlist, and selected counts.
+- Drag-and-drop stage changes save server-side and survive refresh via `pipeline_api.php`.
+- Batch and Job dropdown filtering allows multi-tier cohort views.
+- **Candidate Profile Overlay Drawer**: clicking any card in `pipeline.php` slides out an in-depth profile drawer without page reload:
+  - Semicircular speedometer match meter gauge with needle animation and proportional score breakdown (skills, experience, education, role alignment).
+  - 5 navigable tabs: Overview, Evidence, Career, Timeline & Notes, and Resume Data.
+  - Stage action trigger opening the lifecycle email modal.
+- **Interview Round Evaluation Notes**:
+  - Evaluation notes form directly inside the drawer to record round details.
+  - Structured fields: Round name, "Kya hua" (detailed assessment/feedback), "Kya achha tha" (highlights/strengths), recommendation rating (Strong Yes, Yes, Neutral, No, Strong No), author name.
+  - Backed by the `candidate_notes` MySQL table and displayed chronologically.
+- **Branded Lifecycle Mailer**:
+  - `lib/lifecycle_mailer.php` provides 6 NonceBlox HTML templates (Welcome, Screening, Round 1 Interview, Round 2 Interview, Offer Letter, Rejection).
+  - Dual dispatch engine: NonceBlox Email API (cURL) with fallback to SMTP.
+  - Stage movement modal in `pipeline.php` supports live email preview, recruiter remarks, and 1-click dispatch.
 
 ### Dashboard and analytics
 
@@ -163,6 +175,7 @@ The current schema contains:
 - `interview_batches`
 - `interview_invitations`
 - `interview_slots`
+- `candidate_notes`
 - `audit_events`
 
 `database/schema.sql` represents a fresh installation. Incremental changes are stored in `database/migrations/`, including the organization-domain migration.
@@ -192,7 +205,9 @@ Important production gaps remain: comprehensive MIME validation is not consisten
 - `index.php` — upload, parsing, extraction, basic scoring, and scan result workflow.
 - `dashboard.php` — recruiter dashboard, map, job volumes, skills, experience, and funnel.
 - `candidates.php` / `candidate_detail.php` — candidate browsing and evidence detail.
-- `pipeline.php` / `pipeline_api.php` — persistent drag-and-drop workflow.
+- `pipeline.php` / `pipeline_api.php` — persistent drag-and-drop Kanban pipeline with Batch/Job filters.
+- `pipeline_lifecycle_api.php` — API powering candidate overlay drawer, evaluation notes, and lifecycle stage emails.
+- `lib/lifecycle_mailer.php` — NonceBlox branded lifecycle email service (Welcome, Screening, Round 1, Round 2, Offer, Rejection).
 - `source_sync.php` / `source_sync_api.php` — NonceBlox preview and incremental synchronization.
 - `temp_evidence.php` / `lib/temp_evidence.php` — deterministic evidence analysis UI and rules.
 - `wishlist.php` — shortlist management and branded HTML email previews.
@@ -202,7 +217,7 @@ Important production gaps remain: comprehensive MIME validation is not consisten
 - `lib/auth.php` — sessions, authentication, and CSRF helpers.
 - `lib/workspace.php` — candidate loading, presentation, skills, and experience helpers.
 - `lib/integrations.php` / `lib/secrets.php` — integration persistence and encryption.
-- `database/schema.sql` / `database/migrations/` — database definition and incremental changes.
+- `database/schema.sql` / `database/migrations/` — database definition and incremental changes (including `20261014_candidate_notes.sql`).
 - `assets/app.css` — shared visual system and readable typography.
 
 ## 7. Local setup
@@ -231,7 +246,7 @@ Parser changes additionally require normal PDF, DOCX, legacy DOC, invalid/empty 
 
 ## 9. Known limitations and next priorities
 
-- OCR is not implemented for scanned PDFs.
+- Scanned PDFs use the OCR.space cloud API fallback engine; offline local OCR (e.g. Tesseract) is not configured.
 - Legacy DOC parsing depends on external software.
 - DOCX extraction may miss headers, footers, text boxes, and complex layouts.
 - Standard JD matching remains basic token/sub-string coverage.

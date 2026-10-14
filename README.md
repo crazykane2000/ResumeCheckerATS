@@ -17,6 +17,10 @@ The core application works without an AI provider. AI integrations are optional 
 - Multiple resume upload for PDF, DOCX, and legacy DOC files.
 - Candidate details, contact information, source attribution, detected skills, experience timeline, gaps, and skill-wise experience.
 - Persistent job-specific Kanban pipeline: Applied, Screening, Interview, Offer, and Rejected.
+- Interactive Candidate Profile Overlay Drawer with Speedometer gauge match meter, proportional breakdown, and 5 tabs (Overview, Evidence, Career, Timeline & Notes, Resume Data).
+- Recruiter Interview Evaluation Notes with round feedback ("Kya hua"), strengths ("Kya achha tha"), recommendation rating, and chronological timeline.
+- Branded NonceBlox Lifecycle Mailer for 6 stages with live preview and dual NonceBlox API/SMTP dispatch.
+- Automatic OCR.space cloud API fallback for scanned or image-only PDFs.
 - Candidate filters for job, skill, experience, source, score, stage, and country.
 - Candidate sorting by score or experience.
 - Interactive country map with resume counts, percentages, tooltips, and candidate filtering.
@@ -166,7 +170,7 @@ Database backups contain personal data and remain local; they are intentionally 
 
 ## Known limitations
 
-- OCR for scanned PDFs is not yet implemented.
+- Scanned PDFs utilize the OCR.space cloud API fallback; local offline OCR (e.g. Tesseract) is not configured.
 - Legacy DOC quality depends on external conversion tools.
 - Email is preview/control oriented until SMTP delivery is explicitly enabled and verified.
 - Google Calendar/Drive production OAuth flows require configured credentials and consent.
