@@ -486,18 +486,55 @@ $result = null;
 $error = null;
 $processedCount = 0;
 $batchSummary = [];
+$selectedCount = 0;
+$receivedCount = 0;
+$failedCount = 0;
+$serverMaxFiles = max(1, (int)ini_get('max_file_uploads'));
+$ownerId = (int)$pdo->query('SELECT MIN(id) FROM users')->fetchColumn();
+$isWorkspaceOwner = (int)($user['id'] ?? 0) === $ownerId;
+
+function uploadErrorMessage(int $code): string {
+    return match ($code) {
+        UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'File exceeds the server upload size limit',
+        UPLOAD_ERR_PARTIAL => 'File upload was incomplete',
+        UPLOAD_ERR_NO_FILE => 'No file was received',
+        UPLOAD_ERR_NO_TMP_DIR => 'Server temporary upload directory is unavailable',
+        UPLOAD_ERR_CANT_WRITE => 'Server could not write the uploaded file',
+        UPLOAD_ERR_EXTENSION => 'A server extension stopped the upload',
+        default => 'Unknown upload error',
+    };
+}
 
 // HANDLE MULTI-FILE RESUME INGESTION POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
+        if (!verifyCsrf($_POST['csrf'] ?? '')) {
+            http_response_code(403);
+            throw new Exception('Invalid request token. Refresh the page and try again.');
+        }
         $selectedJobId = (int)($_POST['job_id'] ?? 0);
-        $jd = trim($_POST['jd'] ?? '');
+        $selectedCount = max(0, (int)($_POST['selected_count'] ?? 0));
+        if ($selectedJobId <= 0) {
+            throw new Exception('Please select a job profile. Resumes cannot be uploaded without a target job.');
+        }
+        $selectedJob = null;
+        foreach ($openJobs as $openJob) {
+            if ((int)$openJob['id'] === $selectedJobId) {
+                $selectedJob = $openJob;
+                break;
+            }
+        }
+        if (!$selectedJob) {
+            throw new Exception('The selected job profile is unavailable. Choose an active job and try again.');
+        }
+        $jobSkills = json_decode($selectedJob['required_skills_json'] ?? '[]', true) ?: [];
+        $jd = implode(', ', $jobSkills).' '.trim((string)$selectedJob['description']);
 
         // Gather uploaded files array
         $uploadFiles = [];
-        if (!empty($_FILES['resumes']['name'][0])) {
+        if (isset($_FILES['resumes']['name']) && is_array($_FILES['resumes']['name'])) {
             foreach ($_FILES['resumes']['name'] as $idx => $name) {
-                if ($_FILES['resumes']['error'][$idx] === UPLOAD_ERR_OK) {
+                if ((string)$name !== '' || (int)($_FILES['resumes']['error'][$idx] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
                     $uploadFiles[] = [
                         'name'     => $name,
                         'tmp_name' => $_FILES['resumes']['tmp_name'][$idx],
@@ -513,6 +550,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
         }
 
+        $receivedCount = count($uploadFiles);
+        if ($selectedCount > $receivedCount) {
+            $batchSummary[] = [
+                'file' => 'Upload batch',
+                'status' => 'error',
+                'msg' => ($selectedCount - $receivedCount).' selected file(s) did not reach PHP. Server max_file_uploads is '.$serverMaxFiles.'.',
+            ];
+        }
         if (empty($uploadFiles)) {
             throw new Exception('Please select or drag & drop at least one candidate resume file (.pdf, .docx, .doc).');
         }
@@ -526,6 +571,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $originalName = $fileInfo['name'];
             $fileSize = $fileInfo['size'];
             $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+            if ((int)$fileInfo['error'] !== UPLOAD_ERR_OK) {
+                $batchSummary[] = [
+                    'file' => $originalName ?: 'Unknown file',
+                    'status' => 'error',
+                    'msg' => uploadErrorMessage((int)$fileInfo['error']),
+                ];
+                continue;
+            }
 
             if (!in_array($ext, ['pdf', 'docx', 'doc'], true)) {
                 $batchSummary[] = ['file' => $originalName, 'status' => 'error', 'msg' => 'Unsupported extension'];
@@ -609,17 +662,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'experience'        => $experience,
             ];
 
-            saveCandidateRecord($resObj, $selectedJobId > 0 ? $selectedJobId : null);
+            $candidateId = saveCandidateRecord($resObj, $selectedJobId);
             $result = $resObj;
             $processedCount++;
             $batchSummary[] = [
                 'file'   => $originalName,
                 'status' => 'success',
+                'candidate_id' => $candidateId,
                 'name'   => $candName,
+                'role'   => $candRole,
                 'score'  => $score,
-                'email'  => $email
+                'email'  => $email,
+                'job'    => $selectedJob['title'],
             ];
         }
+
+        $failedCount = count(array_filter($batchSummary, fn($item) => ($item['status'] ?? '') !== 'success'));
+        $batchId = 'UPLOAD-'.date('YmdHis').'-'.bin2hex(random_bytes(4));
+        $auditFiles = array_map(fn($item) => [
+            'filename' => $item['file'] ?? '',
+            'status' => $item['status'] ?? 'error',
+            'candidate_id' => $item['candidate_id'] ?? null,
+            'reason' => $item['msg'] ?? null,
+        ], $batchSummary);
+        $batchMetadata = [
+            'job_id' => $selectedJobId,
+            'job_title' => $selectedJob['title'],
+            'selected' => $selectedCount,
+            'received' => $receivedCount,
+            'successful' => $processedCount,
+            'failed' => $failedCount,
+            'files' => $auditFiles,
+        ];
+        $pdo->prepare('INSERT INTO audit_events(user_id,action,entity_type,entity_id,metadata_json) VALUES(?,?,?,?,?)')->execute([
+            $user['id'] ?? null,
+            'resume_upload_batch_completed',
+            'upload_batch',
+            $batchId,
+            json_encode($batchMetadata, JSON_UNESCAPED_SLASHES),
+        ]);
 
         if ($processedCount === 0 && empty($batchSummary)) {
             throw new Exception('No valid resumes were processed.');
@@ -650,6 +731,16 @@ $pageStyles = '<style>
 .batch-results-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
 .batch-item { display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 10px 14px; border-radius: 8px; border: 1px solid #d1fae5; }
 .batch-item.unfit-item { background: #fff5f5; border-color: #fecaca; color: #991b1b; }
+.batch-counts { display:grid; grid-template-columns:repeat(4,minmax(90px,1fr)); gap:8px; margin:12px 0; }
+.batch-count { background:#fff; border:1px solid #d1fae5; border-radius:8px; padding:10px; text-align:center; }
+.batch-count strong { display:block; font-size:20px; }
+.batch-count span { font-size:10px; color:#64748b; }
+.batch-person { display:flex; align-items:center; gap:10px; min-width:0; }
+.batch-person small { display:none; }
+.batch-clean-details { display:block; color:#64748b; font-size:10px; }
+.selection-warning { margin-top:10px; padding:10px 12px; border-radius:8px; background:#fff7ed; border:1px solid #fdba74; color:#9a3412; font-size:12px; }
+.selection-warning.ok { background:#ecfdf5; border-color:#86efac; color:#166534; }
+.bulk-actions { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:12px; }
 
 .notice { padding: 14px 18px; border-radius: 10px; margin-bottom: 16px; font-weight: 600; font-size: 13px; }
 .ok { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
@@ -662,6 +753,7 @@ $pageStyles = '<style>
 .pill.matched { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
 .pill.missing { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
 .raw-text-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; font-family: monospace; font-size: 12px; color: #334155; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
+@media(max-width:700px){.batch-counts{grid-template-columns:repeat(2,1fr)}.batch-item{align-items:flex-start;gap:8px}.bulk-actions{align-items:stretch;flex-direction:column}}
 </style>';
 
 require __DIR__ . '/views/partials/header.php';
@@ -678,10 +770,24 @@ require __DIR__ . '/views/partials/header.php';
 <?php if ($error): ?>
   <div class="notice err"><i class="fa-solid fa-triangle-exclamation"></i> <?= htmlspecialchars($error) ?></div>
 <?php endif; ?>
+<?php if (isset($_GET['deleted'])): ?>
+  <div class="notice ok"><i class="fa-solid fa-circle-check"></i> <?= (int)$_GET['deleted'] ?> selected candidate(s) deleted. Audit tombstones were preserved.</div>
+<?php endif; ?>
 
 <?php if (!empty($batchSummary)): ?>
   <div class="batch-results-card" style="<?= $processedCount === 0 ? 'background:#fff5f5;border-color:#fecaca;color:#991b1b' : '' ?>">
     <strong><i class="fa-solid fa-circle-check"></i> Ingestion Batch Report [Processed: <?= $processedCount ?> Valid Resume(s) | Source: <code>direct_upload</code>]</strong>
+    <div class="batch-counts">
+      <div class="batch-count"><strong><?= $selectedCount ?></strong><span>Selected</span></div>
+      <div class="batch-count"><strong><?= $receivedCount ?></strong><span>Received</span></div>
+      <div class="batch-count"><strong><?= $processedCount ?></strong><span>Successful</span></div>
+      <div class="batch-count"><strong><?= $failedCount ?></strong><span>Failed</span></div>
+    </div>
+    <?php if ($isWorkspaceOwner && $processedCount > 0): ?>
+    <form method="post" action="candidate_delete.php" id="batchDeleteForm" onsubmit="return confirmBatchDelete()">
+      <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES) ?>">
+      <input type="hidden" name="return_to" value="scan">
+    <?php endif; ?>
     <div class="batch-results-list">
       <?php foreach ($batchSummary as $b): ?>
         <?php if (($b['status'] ?? '') === 'unfit'): ?>
@@ -691,7 +797,13 @@ require __DIR__ . '/views/partials/header.php';
           </div>
         <?php elseif (($b['status'] ?? '') === 'success'): ?>
           <div class="batch-item">
-            <span><i class="fa-solid fa-circle-check" style="color:#16a34a"></i> <strong><?= htmlspecialchars($b['name']) ?></strong> (<?= htmlspecialchars($b['email'] ?? 'No email') ?>)</span>
+            <span class="batch-person">
+              <?php if ($isWorkspaceOwner): ?><input class="uploaded-candidate-check" type="checkbox" name="candidate_ids[]" value="<?= htmlspecialchars($b['candidate_id'], ENT_QUOTES) ?>"><?php endif; ?>
+                <small><?= htmlspecialchars($b['email'] ?: 'No email') ?> | <?= htmlspecialchars($b['role']) ?> | <?= htmlspecialchars($b['file']) ?></small>
+                <small><?= htmlspecialchars($b['email'] ?: 'No email') ?> � <?= htmlspecialchars($b['role']) ?> � <?= htmlspecialchars($b['file']) ?></small>
+              </span>
+            </span>
+            <span class="batch-clean-details"><?= htmlspecialchars($b['email'] ?: 'No email') ?> | <?= htmlspecialchars($b['role']) ?> | <?= htmlspecialchars($b['file']) ?> | <?= htmlspecialchars($b['job']) ?></span>
             <span class="badge" style="background:#dcfce7;color:#15803d;font-weight:800"><?= isset($b['score']) && $b['score'] > 0 ? $b['score'].'%' : 'Indexed' ?></span>
           </div>
         <?php else: ?>
@@ -702,18 +814,27 @@ require __DIR__ . '/views/partials/header.php';
         <?php endif; ?>
       <?php endforeach; ?>
     </div>
+    <?php if ($isWorkspaceOwner && $processedCount > 0): ?>
+      <div class="bulk-actions">
+        <label><input type="checkbox" id="selectAllUploaded"> Select all successful uploads</label>
+        <button class="btn" type="submit" style="color:#b91c1c;border-color:#fecaca"><i class="fa-solid fa-trash"></i> Delete selected</button>
+      </div>
+    </form>
+    <?php endif; ?>
   </div>
 <?php endif; ?>
 
 <div class="ingestion-card">
   <h2><i class="fa-solid fa-file-arrow-up" style="color:#6366f1;margin-right:6px"></i> Upload Candidate Resumes</h2>
-  <p style="font-size:13px;color:#6b7280;margin:0 0 16px">Select an active job profile to match requirements, or pick "Open Pool" for general ingestion without typing a JD.</p>
+  <p style="font-size:13px;color:#6b7280;margin:0 0 16px">Select the target job first. Every resume in the batch will be assigned and scored against that job's saved requirements.</p>
 
   <form method="post" enctype="multipart/form-data" id="ingestionForm">
+    <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES) ?>">
+    <input type="hidden" name="selected_count" id="selectedCountInput" value="0">
     <div class="job-select-toolbar">
-      <label style="font-size:12px;font-weight:800;color:#374151;text-transform:uppercase;display:block;margin-bottom:6px">Target Job Profile:</label>
-      <select class="control" name="job_id" id="jobSelect" onchange="onJobSelect(this)" style="font-size:13px;border-radius:10px;padding:10px 14px;width:100%;border:1px solid #d1d5db;background:#fff">
-        <option value="0" data-skills="" data-desc="">General Ingestion / Open Pool (All Roles)</option>
+        <option value="" data-jd="" selected>Select a job profile - required</option>
+      <select class="control" name="job_id" id="jobSelect" required onchange="onJobSelect(this)" style="font-size:13px;border-radius:10px;padding:10px 14px;width:100%;border:1px solid #d1d5db;background:#fff">
+        <option value="" data-jd="" selected>Select a job profile - required</option>
         <?php foreach ($openJobs as $job): 
           $jdSkills = json_decode($job['required_skills_json'] ?? '[]', true) ?: [];
           $jdText = trim((string)$job['description']);
@@ -726,6 +847,7 @@ require __DIR__ . '/views/partials/header.php';
         </option>
         <?php endforeach; ?>
       </select>
+      <div class="selection-warning" id="jobWarning"><i class="fa-solid fa-triangle-exclamation"></i> Select a job profile first. Resumes will only be assigned and scored for the job you choose.</div>
     </div>
 
     <!-- DRAG AND DROP MULTI-FILE ZONE -->
@@ -735,6 +857,7 @@ require __DIR__ . '/views/partials/header.php';
       <span style="font-size:12px;color:#6b7280;display:block;margin-top:4px">Select single or multiple files: <strong>PDF, DOCX, DOC</strong> (Max 8 MB per file)</span>
       <input type="file" name="resumes[]" id="resumeInput" accept=".pdf,.docx,.doc" multiple required onchange="updateFileNames(this)">
     </div>
+    <div class="selection-warning" id="fileWarning"><i class="fa-solid fa-triangle-exclamation"></i> Select at least one resume. Current server batch limit: <?= $serverMaxFiles ?> files.</div>
 
     <!-- OPTIONAL JD OVERRIDE / READONLY VIEW -->
     <div style="margin-top:16px">
@@ -743,7 +866,7 @@ require __DIR__ . '/views/partials/header.php';
     </div>
 
     <div style="margin-top:20px;display:flex;justify-content:flex-end">
-      <button class="btn btn-primary" id="submitBtn" type="submit" style="height:44px;border-radius:10px;padding:0 24px;font-weight:700;font-size:13px">
+      <button class="btn btn-primary" id="submitBtn" type="submit" disabled style="height:44px;border-radius:10px;padding:0 24px;font-weight:700;font-size:13px">
         <i class="fa-solid fa-cloud-arrow-up"></i> Ingest & Parse Resumes
       </button>
     </div>
@@ -803,10 +926,13 @@ function onJobSelect(selectEl) {
   const selectedOpt = selectEl.options[selectEl.selectedIndex];
   const jdText = selectedOpt.getAttribute('data-jd') || '';
   document.getElementById('jdInput').value = jdText;
+  updateUploadState();
 }
 
 function updateFileNames(input) {
   const label = document.getElementById('fileLabel');
+  const selectedCount = input.files ? input.files.length : 0;
+  document.getElementById('selectedCountInput').value = String(selectedCount);
   if (input.files && input.files.length > 0) {
     if (input.files.length === 1) {
       label.innerHTML = 'Selected: <strong>' + input.files[0].name + '</strong>';
@@ -816,15 +942,60 @@ function updateFileNames(input) {
   } else {
     label.innerText = 'Click or Drag & Drop Resumes Here';
   }
+  updateUploadState();
+}
+
+function updateUploadState() {
+  const jobSelected = document.getElementById('jobSelect').value !== '';
+  const fileCount = document.getElementById('resumeInput').files.length;
+  const jobWarning = document.getElementById('jobWarning');
+  const fileWarning = document.getElementById('fileWarning');
+  jobWarning.classList.toggle('ok', jobSelected);
+  jobWarning.innerHTML = jobSelected
+    ? '<i class="fa-solid fa-circle-check"></i> Job selected. Every resume in this batch will be assigned and scored for this job.'
+    : '<i class="fa-solid fa-triangle-exclamation"></i> Select a job profile first. Upload will not start without it.';
+  fileWarning.classList.toggle('ok', fileCount > 0 && fileCount <= <?= $serverMaxFiles ?>);
+  fileWarning.innerHTML = fileCount > 0
+    ? '<i class="fa-solid fa-file-circle-check"></i> Selected: <strong>' + fileCount + '</strong> resume(s). Server batch limit: <?= $serverMaxFiles ?>.'
+    : '<i class="fa-solid fa-triangle-exclamation"></i> Select at least one resume. Current server batch limit: <?= $serverMaxFiles ?> files.';
+  document.getElementById('submitBtn').disabled = !jobSelected || fileCount < 1 || fileCount > <?= $serverMaxFiles ?>;
 }
 
 document.getElementById('ingestionForm').addEventListener('submit', function(e) {
+  const jobSelected = document.getElementById('jobSelect').value !== '';
+  const fileCount = document.getElementById('resumeInput').files.length;
+  if (!jobSelected || fileCount < 1 || fileCount > <?= $serverMaxFiles ?>) {
+    e.preventDefault();
+    updateUploadState();
+    alert(!jobSelected ? 'Please select a job profile before uploading.' : 'Please select between 1 and <?= $serverMaxFiles ?> resume files.');
+    return;
+  }
   const btn = document.getElementById('submitBtn');
   btn.disabled = true;
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing & Parsing Resumes... Please wait...';
   btn.style.opacity = '0.75';
   btn.style.cursor = 'wait';
 });
+
+document.getElementById('jdInput').readOnly = true;
+document.getElementById('jobSelect').options[0].textContent = 'Select a job profile - required';
+updateUploadState();
+
+const selectAllUploaded = document.getElementById('selectAllUploaded');
+if (selectAllUploaded) {
+  selectAllUploaded.addEventListener('change', function () {
+    document.querySelectorAll('.uploaded-candidate-check').forEach(box => box.checked = this.checked);
+  });
+}
+
+function confirmBatchDelete() {
+  const selected = document.querySelectorAll('.uploaded-candidate-check:checked').length;
+  if (!selected) {
+    alert('Select at least one uploaded candidate to delete.');
+    return false;
+  }
+  return confirm('Permanently delete ' + selected + ' selected candidate(s) and their protected local resume files? This cannot be undone.');
+}
 
 function copyRawText() {
   const text = document.getElementById('rawTextContent').innerText;

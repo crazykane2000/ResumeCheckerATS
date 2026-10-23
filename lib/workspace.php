@@ -153,7 +153,7 @@ function analyzeExperienceTimeline(string $text, array $skills): array {
         'confidence' => count($jobs) ? 'estimated_from_dated_roles' : 'insufficient_dated_roles'
     ];
 }
-function saveCandidateRecord(array $result, ?int $jobId = null): void {
+function saveCandidateRecord(array $result, ?int $jobId = null): string {
     $items=workspaceData('candidates.json',[]);
     $name = !empty($result['name']) && $result['name'] !== 'Unknown candidate' ? $result['name'] : 'Unknown candidate';
     if ($name === 'Unknown candidate') {
@@ -210,6 +210,7 @@ function saveCandidateRecord(array $result, ?int $jobId = null): void {
     
     $sql='INSERT INTO candidates(id,job_id,name,role_title,email,phone,country_code,country_name,current_ctc,expected_ctc,score,stage,source_name,skills_json,experience_json,analysis_json,stored_file,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE job_id=VALUES(job_id),name=VALUES(name),role_title=VALUES(role_title),email=VALUES(email),phone=VALUES(phone),country_code=VALUES(country_code),country_name=VALUES(country_name),current_ctc=VALUES(current_ctc),expected_ctc=VALUES(expected_ctc),score=VALUES(score),skills_json=VALUES(skills_json),experience_json=VALUES(experience_json),analysis_json=VALUES(analysis_json),stored_file=VALUES(stored_file)';
     db()->prepare($sql)->execute([$record['id'],$record['job_id'],$record['name'],$record['role'],$record['email'],$record['phone'],$record['country_code'],$record['country_name'],$record['current_ctc'],$record['expected_ctc'],$record['score'],$record['stage'],$record['source'],json_encode($record['skills']),json_encode($record['experience']),json_encode($record['analysis']),$record['file'],$record['created_at']]);
+    return $record['id'];
 }
 function countryCodeFromName(?string $code, ?string $name): string {
     if(trim((string)$code)!=='')return strtoupper(trim((string)$code));
