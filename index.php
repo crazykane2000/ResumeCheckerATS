@@ -992,7 +992,7 @@ require __DIR__ . '/views/partials/header.php';
 </div>
 
 <details class="panel upload-manager" id="previousUploads">
-  <summary><i class="fa-solid fa-users-gear" style="color:#6366f1"></i> Manage All Candidates (<?= count($previousUploads) ?>)</summary>
+  <summary><i class="fa-solid fa-users-gear" style="color:#6366f1"></i> Manage All Candidates (<?= count($previousUploads) ?>) <a href="candidate_duplicates.php" onclick="event.stopPropagation()" style="float:right;color:#6f45ff;font-size:12px"><i class="fa-solid fa-clone"></i> Find duplicates</a></summary>
   <form method="post" action="index.php#previousUploads" id="previousUploadForm" onsubmit="return validatePreviousUploadAction(event)">
     <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES) ?>">
     <input type="hidden" name="action" value="reassign_candidates">

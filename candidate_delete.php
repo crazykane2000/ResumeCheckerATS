@@ -8,7 +8,7 @@ if((int)($user['id']??0)!==$ownerId){http_response_code(403);exit('Only the work
 $ids=$_POST['candidate_ids']??[];if(!is_array($ids))$ids=[];$single=trim((string)($_POST['candidate_id']??''));if($single!=='')$ids[]=$single;
 $ids=array_values(array_unique(array_filter(array_map(fn($value)=>preg_replace('/[^A-Za-z0-9_-]/','',(string)$value),$ids))));
 if(!$ids){http_response_code(422);exit('Select at least one candidate to delete.');}
-$profile=max(0,(int)($_POST['profile_id']??0));$returnChoice=$_POST['return_to']??'';$returnTo=$returnChoice==='scan'?'index.php':($returnChoice==='candidates'?'candidates.php':'wishlist.php?profile='.$profile);
+$profile=max(0,(int)($_POST['profile_id']??0));$returnChoice=$_POST['return_to']??'';$returnTo=$returnChoice==='scan'?'index.php':($returnChoice==='candidates'?'candidates.php':($returnChoice==='duplicates'?'candidate_duplicates.php':'wishlist.php?profile='.$profile));
 $placeholders=implode(',',array_fill(0,count($ids),'?'));$statement=$pdo->prepare("SELECT id,job_id,source_name,stored_file FROM candidates WHERE id IN ($placeholders)");$statement->execute($ids);$candidates=$statement->fetchAll();
 if(!$candidates){header('Location: '.$returnTo.(str_contains($returnTo,'?')?'&':'?').'deleted=missing');exit;}
 $pdo->beginTransaction();
