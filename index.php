@@ -489,6 +489,9 @@ $batchSummary = [];
 $selectedCount = 0;
 $receivedCount = 0;
 $failedCount = 0;
+$managementMessage = '';
+$managementError = '';
+$managementResults = [];
 $serverMaxFiles = max(1, (int)ini_get('max_file_uploads'));
 $ownerId = (int)$pdo->query('SELECT MIN(id) FROM users')->fetchColumn();
 $isWorkspaceOwner = (int)($user['id'] ?? 0) === $ownerId;
@@ -506,7 +509,7 @@ function uploadErrorMessage(int $code): string {
 }
 
 // HANDLE MULTI-FILE RESUME INGESTION POST
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? 'upload_resumes') === 'upload_resumes') {
     try {
         if (!verifyCsrf($_POST['csrf'] ?? '')) {
             http_response_code(403);
@@ -711,6 +714,89 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reassign_candidates') {
+    try {
+        if (!verifyCsrf($_POST['csrf'] ?? '')) throw new Exception('Invalid request token.');
+        $candidateIds = $_POST['candidate_ids'] ?? [];
+        if (!is_array($candidateIds)) $candidateIds = [];
+        $candidateIds = array_slice(array_values(array_unique(array_filter(array_map(
+            fn($value) => preg_replace('/[^A-Za-z0-9_-]/', '', (string)$value),
+            $candidateIds
+        )))), 0, 200);
+        $assignmentJobId = (int)($_POST['assignment_job_id'] ?? 0);
+        if (!$candidateIds) throw new Exception('Select at least one previous upload.');
+        if ($assignmentJobId <= 0) throw new Exception('Select the job profile to assign.');
+        $assignmentJob = null;
+        foreach ($openJobs as $openJob) {
+            if ((int)$openJob['id'] === $assignmentJobId) {$assignmentJob = $openJob;break;}
+        }
+        if (!$assignmentJob) throw new Exception('The selected job profile is unavailable.');
+        $assignmentSkills = json_decode($assignmentJob['required_skills_json'] ?? '[]', true) ?: [];
+        $assignmentJd = implode(', ', $assignmentSkills).' '.trim((string)$assignmentJob['description']);
+        $marks = implode(',', array_fill(0, count($candidateIds), '?'));
+        $candidateStmt = $pdo->prepare("SELECT id,name,stored_file FROM candidates WHERE id IN ($marks) AND source_name='Direct upload'");
+        $candidateStmt->execute($candidateIds);
+        $selectedCandidates = $candidateStmt->fetchAll();
+        if (!$selectedCandidates) throw new Exception('No eligible direct-upload candidates were found.');
+        $uploadsRoot = realpath(__DIR__.'/uploads');
+        $updateCandidate = $pdo->prepare('UPDATE candidates SET job_id=?,score=?,skills_json=?,experience_json=?,analysis_json=? WHERE id=?');
+        $reassigned = 0;
+        foreach ($selectedCandidates as $selectedCandidate) {
+            $stored = trim((string)$selectedCandidate['stored_file']);
+            $candidatePath = $uploadsRoot && $stored !== ''
+                ? realpath(__DIR__.'/uploads/'.str_replace(['\\','/'], DIRECTORY_SEPARATOR, $stored))
+                : false;
+            if (!$candidatePath || !is_file($candidatePath) || !str_starts_with(strtolower($candidatePath), strtolower($uploadsRoot.DIRECTORY_SEPARATOR))) {
+                $managementResults[] = ['name'=>$selectedCandidate['name'],'status'=>'error','message'=>'Protected resume file is missing.'];
+                continue;
+            }
+            $extension = strtolower(pathinfo($candidatePath, PATHINFO_EXTENSION));
+            if (!in_array($extension, ['pdf','docx','doc'], true)) {
+                $managementResults[] = ['name'=>$selectedCandidate['name'],'status'=>'error','message'=>'Unsupported stored resume format.'];
+                continue;
+            }
+            $reExtraction = extractResumeText($candidatePath, $extension);
+            $resumeText = trim((string)($reExtraction['text'] ?? ''));
+            if ($resumeText === '') {
+                $managementResults[] = ['name'=>$selectedCandidate['name'],'status'=>'error','message'=>$reExtraction['error'] ?: 'Resume text could not be extracted.'];
+                continue;
+            }
+            $reSkills = extractDetectedSkills($resumeText);
+            $reExperience = analyzeExperienceTimeline($resumeText, $reSkills);
+            [$reScore, $reMatched, $reMissing, $reTokens] = basicMatch($assignmentJd, $resumeText);
+            $reAnalysis = [
+                'matched_keywords'=>$reMatched,
+                'missing_keywords'=>$reMissing,
+                'jd_keywords'=>$reTokens,
+                'reassigned_at'=>date(DATE_ATOM),
+                'reassigned_job_id'=>$assignmentJobId,
+            ];
+            $updateCandidate->execute([
+                $assignmentJobId,
+                $reScore,
+                json_encode($reSkills),
+                json_encode($reExperience),
+                json_encode($reAnalysis),
+                $selectedCandidate['id'],
+            ]);
+            $reassigned++;
+            $managementResults[] = ['name'=>$selectedCandidate['name'],'status'=>'success','message'=>'Assigned to '.$assignmentJob['title'].' and recalculated: '.$reScore.'%.'];
+        }
+        $managementMessage = $reassigned.' candidate(s) assigned to '.$assignmentJob['title'].' and recalculated.';
+        $pdo->prepare('INSERT INTO audit_events(user_id,action,entity_type,entity_id,metadata_json) VALUES(?,?,?,?,?)')->execute([
+            $user['id'] ?? null,
+            'candidate_bulk_job_reassigned',
+            'job',
+            (string)$assignmentJobId,
+            json_encode(['requested'=>count($candidateIds),'reassigned'=>$reassigned,'failed'=>count($selectedCandidates)-$reassigned,'candidate_ids'=>array_column($selectedCandidates,'id')]),
+        ]);
+    } catch (Throwable $e) {
+        $managementError = $e->getMessage();
+    }
+}
+
+$previousUploads = $pdo->query("SELECT c.id,c.name,c.email,c.role_title,c.score,c.stage,c.stored_file,c.created_at,c.updated_at,c.job_id,j.title job_title FROM candidates c LEFT JOIN jobs j ON j.id=c.job_id WHERE c.source_name='Direct upload' ORDER BY c.created_at DESC,c.id DESC LIMIT 500")->fetchAll();
+
 $activePage = 'scan';
 $pageTitle = 'Resume Parser & Ingestion Hub · NonceBlox ATS';
 $pageStyles = '<style>
@@ -741,6 +827,15 @@ $pageStyles = '<style>
 .selection-warning { margin-top:10px; padding:10px 12px; border-radius:8px; background:#fff7ed; border:1px solid #fdba74; color:#9a3412; font-size:12px; }
 .selection-warning.ok { background:#ecfdf5; border-color:#86efac; color:#166534; }
 .bulk-actions { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:12px; }
+.upload-manager { margin-top:20px; padding:0; overflow:hidden; }
+.upload-manager summary { cursor:pointer; padding:16px 18px; font-weight:800; list-style:none; }
+.upload-manager summary::-webkit-details-marker { display:none; }
+.manager-toolbar { display:flex; gap:10px; align-items:end; padding:14px 18px; border-top:1px solid #e5e7eb; border-bottom:1px solid #e5e7eb; background:#fafafa; }
+.manager-job { flex:1; }
+.manager-table-wrap { overflow:auto; max-height:520px; }
+.manager-table { width:100%; border-collapse:collapse; font-size:12px; }
+.manager-table th,.manager-table td { padding:10px 12px; border-bottom:1px solid #eef2f7; text-align:left; white-space:nowrap; }
+.manager-table th { position:sticky; top:0; background:#f8fafc; z-index:1; }
 
 .notice { padding: 14px 18px; border-radius: 10px; margin-bottom: 16px; font-weight: 600; font-size: 13px; }
 .ok { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
@@ -753,7 +848,7 @@ $pageStyles = '<style>
 .pill.matched { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
 .pill.missing { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
 .raw-text-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; font-family: monospace; font-size: 12px; color: #334155; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
-@media(max-width:700px){.batch-counts{grid-template-columns:repeat(2,1fr)}.batch-item{align-items:flex-start;gap:8px}.bulk-actions{align-items:stretch;flex-direction:column}}
+@media(max-width:700px){.batch-counts{grid-template-columns:repeat(2,1fr)}.batch-item{align-items:flex-start;gap:8px}.bulk-actions,.manager-toolbar{align-items:stretch;flex-direction:column}}
 </style>';
 
 require __DIR__ . '/views/partials/header.php';
@@ -769,6 +864,15 @@ require __DIR__ . '/views/partials/header.php';
 
 <?php if ($error): ?>
   <div class="notice err"><i class="fa-solid fa-triangle-exclamation"></i> <?= htmlspecialchars($error) ?></div>
+<?php endif; ?>
+<?php if ($managementError): ?>
+  <div class="notice err"><i class="fa-solid fa-triangle-exclamation"></i> <?= htmlspecialchars($managementError) ?></div>
+<?php endif; ?>
+<?php if ($managementMessage): ?>
+  <div class="notice ok"><i class="fa-solid fa-circle-check"></i> <?= htmlspecialchars($managementMessage) ?></div>
+  <?php foreach ($managementResults as $managementResult): ?>
+    <div class="notice <?= $managementResult['status']==='success'?'ok':'err' ?>"><?= htmlspecialchars($managementResult['name'].' - '.$managementResult['message']) ?></div>
+  <?php endforeach; ?>
 <?php endif; ?>
 <?php if (isset($_GET['deleted'])): ?>
   <div class="notice ok"><i class="fa-solid fa-circle-check"></i> <?= (int)$_GET['deleted'] ?> selected candidate(s) deleted. Audit tombstones were preserved.</div>
@@ -829,6 +933,7 @@ require __DIR__ . '/views/partials/header.php';
   <p style="font-size:13px;color:#6b7280;margin:0 0 16px">Select the target job first. Every resume in the batch will be assigned and scored against that job's saved requirements.</p>
 
   <form method="post" enctype="multipart/form-data" id="ingestionForm">
+    <input type="hidden" name="action" value="upload_resumes">
     <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES) ?>">
     <input type="hidden" name="selected_count" id="selectedCountInput" value="0">
     <div class="job-select-toolbar">
@@ -872,6 +977,47 @@ require __DIR__ . '/views/partials/header.php';
     </div>
   </form>
 </div>
+
+<details class="panel upload-manager" id="previousUploads">
+  <summary><i class="fa-solid fa-folder-open" style="color:#6366f1"></i> Manage Previous Uploads (<?= count($previousUploads) ?>)</summary>
+  <form method="post" action="index.php#previousUploads" id="previousUploadForm" onsubmit="return validatePreviousUploadAction(event)">
+    <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES) ?>">
+    <input type="hidden" name="action" value="reassign_candidates">
+    <input type="hidden" name="return_to" value="scan">
+    <div class="manager-toolbar">
+      <label><input type="checkbox" id="selectAllPrevious"> Select all shown</label>
+      <div class="manager-job">
+        <label style="display:block;font-size:11px;font-weight:800;margin-bottom:5px">Assign selected candidates to job</label>
+        <select class="control" name="assignment_job_id" id="assignmentJob">
+          <option value="">Select job profile</option>
+          <?php foreach ($openJobs as $job): ?><option value="<?= (int)$job['id'] ?>"><?= htmlspecialchars($job['title']) ?></option><?php endforeach; ?>
+        </select>
+      </div>
+      <button class="btn btn-primary" type="submit"><i class="fa-solid fa-arrows-rotate"></i> Assign & Recalculate</button>
+      <?php if ($isWorkspaceOwner): ?>
+        <button class="btn" type="submit" formaction="candidate_delete.php" onclick="return confirmPreviousDelete()" style="color:#b91c1c;border-color:#fecaca"><i class="fa-solid fa-trash"></i> Delete selected</button>
+      <?php endif; ?>
+    </div>
+    <div class="manager-table-wrap">
+      <table class="manager-table">
+        <thead><tr><th></th><th>Candidate</th><th>Current job</th><th>Score</th><th>Stage</th><th>Uploaded</th></tr></thead>
+        <tbody>
+<?php if (!$previousUploads): ?><tr><td colspan="6">No previous direct uploads found.</td></tr><?php endif; ?>
+        <?php foreach ($previousUploads as $previous): ?>
+          <tr>
+            <td><input class="previous-candidate-check" type="checkbox" name="candidate_ids[]" value="<?= htmlspecialchars($previous['id'], ENT_QUOTES) ?>"></td>
+            <td><strong><?= htmlspecialchars($previous['name']) ?></strong><br><small><?= htmlspecialchars($previous['email'] ?: 'No email') ?></small></td>
+            <td><?= htmlspecialchars($previous['job_title'] ?: 'Unassigned') ?></td>
+            <td><?= (int)$previous['score'] ?>%</td>
+            <td><?= htmlspecialchars($previous['stage']) ?></td>
+            <td><?= htmlspecialchars(date('d M Y, h:i A', strtotime($previous['created_at']))) ?></td>
+          </tr>
+        <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+  </form>
+</details>
 
 <?php if ($result): ?>
   <!-- EXTRACTION SUMMARY CARD FOR LAST PARSED RESUME -->
@@ -995,6 +1141,43 @@ function confirmBatchDelete() {
     return false;
   }
   return confirm('Permanently delete ' + selected + ' selected candidate(s) and their protected local resume files? This cannot be undone.');
+}
+
+const selectAllPrevious = document.getElementById('selectAllPrevious');
+if (selectAllPrevious) {
+  selectAllPrevious.addEventListener('change', function () {
+    document.querySelectorAll('.previous-candidate-check').forEach(box => box.checked = this.checked);
+  });
+}
+
+function previousSelectionCount() {
+  return document.querySelectorAll('.previous-candidate-check:checked').length;
+}
+
+function validatePreviousUploadAction(event) {
+  if (event.submitter && (event.submitter.getAttribute('formaction') || '').includes('candidate_delete.php')) {
+    return true;
+  }
+  if (!previousSelectionCount()) {
+    event.preventDefault();
+    alert('Select at least one previous upload.');
+    return false;
+  }
+  if (!document.getElementById('assignmentJob').value) {
+    event.preventDefault();
+    alert('Select the job profile for assignment and recalculation.');
+    return false;
+  }
+  return confirm('Assign the selected candidate(s) to this job and recalculate their score from the protected resumes?');
+}
+
+function confirmPreviousDelete() {
+  const selected = previousSelectionCount();
+  if (!selected) {
+    alert('Select at least one previous upload to delete.');
+    return false;
+  }
+  return confirm('Permanently delete ' + selected + ' selected candidate(s)? This cannot be undone.');
 }
 
 function copyRawText() {
