@@ -1127,6 +1127,12 @@ document.getElementById('jdInput').readOnly = true;
 document.getElementById('jobSelect').options[0].textContent = 'Select a job profile - required';
 updateUploadState();
 
+const previousUploadsPanel = document.getElementById('previousUploads');
+const ingestionCard = document.querySelector('.ingestion-card');
+if (previousUploadsPanel && ingestionCard) {
+  ingestionCard.parentNode.insertBefore(previousUploadsPanel, ingestionCard);
+}
+
 const selectAllUploaded = document.getElementById('selectAllUploaded');
 if (selectAllUploaded) {
   selectAllUploaded.addEventListener('change', function () {
