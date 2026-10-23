@@ -792,7 +792,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reass
     }
 }
 
-$previousUploads = $pdo->query("SELECT c.id,c.name,c.email,c.role_title,c.score,c.stage,c.source_name,c.stored_file,c.source_url,c.created_at,c.updated_at,c.job_id,j.title job_title FROM candidates c LEFT JOIN jobs j ON j.id=c.job_id ORDER BY c.created_at DESC,c.id DESC LIMIT 500")->fetchAll();
+$previousUploads = $pdo->query("SELECT c.id,c.name,c.email,c.role_title,c.score,c.stage,c.source_name,c.stored_file,c.source_url,c.created_at,c.updated_at,c.job_id,j.title job_title FROM candidates c LEFT JOIN jobs j ON j.id=c.job_id ORDER BY c.created_at DESC,c.id DESC")->fetchAll();
+$candidateSources = array_values(array_unique(array_filter(array_map(fn($candidate) => trim((string)($candidate['source_name'] ?? '')), $previousUploads))));
+$candidateStages = array_values(array_unique(array_filter(array_map(fn($candidate) => trim((string)($candidate['stage'] ?? '')), $previousUploads))));
+$candidateJobs = [];
+foreach ($previousUploads as $candidate) {
+    if ($candidate['job_id'] !== null && trim((string)$candidate['job_title']) !== '') {
+        $candidateJobs[(int)$candidate['job_id']] = (string)$candidate['job_title'];
+    }
+}
+sort($candidateSources, SORT_NATURAL | SORT_FLAG_CASE);
+sort($candidateStages, SORT_NATURAL | SORT_FLAG_CASE);
+asort($candidateJobs, SORT_NATURAL | SORT_FLAG_CASE);
 
 $activePage = 'scan';
 $pageTitle = 'Resume Parser & Ingestion Hub · NonceBlox ATS';
@@ -829,6 +840,10 @@ $pageStyles = '<style>
 .upload-manager summary::-webkit-details-marker { display:none; }
 .manager-toolbar { display:flex; gap:10px; align-items:end; padding:14px 18px; border-top:1px solid #e5e7eb; border-bottom:1px solid #e5e7eb; background:#fafafa; }
 .manager-job { flex:1; }
+.manager-filters { display:grid; grid-template-columns:minmax(220px,2fr) repeat(4,minmax(130px,1fr)); gap:10px; padding:14px 18px; background:#fff; border-bottom:1px solid #e5e7eb; }
+.manager-filter label { display:block; font-size:10px; font-weight:800; color:#64748b; margin-bottom:4px; text-transform:uppercase; }
+.manager-filter .control { width:100%; }
+.manager-count { padding:8px 18px; color:#475569; font-size:11px; background:#f8fafc; border-bottom:1px solid #e5e7eb; }
 .manager-table-wrap { overflow:auto; max-height:520px; }
 .manager-table { width:100%; border-collapse:collapse; font-size:12px; }
 .manager-table th,.manager-table td { padding:10px 12px; border-bottom:1px solid #eef2f7; text-align:left; white-space:nowrap; }
@@ -845,7 +860,8 @@ $pageStyles = '<style>
 .pill.matched { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
 .pill.missing { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
 .raw-text-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; font-family: monospace; font-size: 12px; color: #334155; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
-@media(max-width:700px){.batch-counts{grid-template-columns:repeat(2,1fr)}.batch-item{align-items:flex-start;gap:8px}.bulk-actions,.manager-toolbar{align-items:stretch;flex-direction:column}}
+@media(max-width:900px){.manager-filters{grid-template-columns:1fr 1fr}}
+@media(max-width:700px){.batch-counts{grid-template-columns:repeat(2,1fr)}.batch-item{align-items:flex-start;gap:8px}.bulk-actions,.manager-toolbar{align-items:stretch;flex-direction:column}.manager-filters{grid-template-columns:1fr}}
 </style>';
 
 require __DIR__ . '/views/partials/header.php';
@@ -998,13 +1014,36 @@ require __DIR__ . '/views/partials/header.php';
     <div style="padding:9px 18px;background:#fff7ed;color:#9a3412;font-size:11px;border-bottom:1px solid #fed7aa">
       Delete removes the candidate from ResumeIQ only. Original NonceBlox/source-system applications remain unchanged and may return on a future source sync.
     </div>
+    <div class="manager-filters">
+      <div class="manager-filter">
+        <label for="candidateSearch">Search candidate</label>
+        <input class="control" type="search" id="candidateSearch" placeholder="Name, email, role or ID">
+      </div>
+      <div class="manager-filter">
+        <label for="candidateSourceFilter">Source</label>
+        <select class="control" id="candidateSourceFilter"><option value="">All sources</option><?php foreach ($candidateSources as $source): ?><option value="<?= htmlspecialchars(strtolower($source), ENT_QUOTES) ?>"><?= htmlspecialchars($source) ?></option><?php endforeach; ?></select>
+      </div>
+      <div class="manager-filter">
+        <label for="candidateJobFilter">Job</label>
+        <select class="control" id="candidateJobFilter"><option value="">All jobs</option><option value="__unassigned__">Unassigned</option><?php foreach ($candidateJobs as $jobId => $jobTitle): ?><option value="<?= $jobId ?>"><?= htmlspecialchars($jobTitle) ?></option><?php endforeach; ?></select>
+      </div>
+      <div class="manager-filter">
+        <label for="candidateStageFilter">Stage</label>
+        <select class="control" id="candidateStageFilter"><option value="">All stages</option><?php foreach ($candidateStages as $stage): ?><option value="<?= htmlspecialchars(strtolower($stage), ENT_QUOTES) ?>"><?= htmlspecialchars($stage) ?></option><?php endforeach; ?></select>
+      </div>
+      <div class="manager-filter">
+        <label for="candidateDateFilter">Added date</label>
+        <input class="control" type="date" id="candidateDateFilter">
+      </div>
+    </div>
+    <div class="manager-count"><strong id="visibleCandidateCount"><?= count($previousUploads) ?></strong> of <?= count($previousUploads) ?> candidates shown · <strong id="selectedCandidateCount">0</strong> selected</div>
     <div class="manager-table-wrap">
       <table class="manager-table">
         <thead><tr><th></th><th>Candidate</th><th>Source</th><th>Current job</th><th>Score</th><th>Stage</th><th>Added</th></tr></thead>
         <tbody>
 <?php if (!$previousUploads): ?><tr><td colspan="7">No candidates found.</td></tr><?php endif; ?>
         <?php foreach ($previousUploads as $previous): ?>
-          <tr>
+          <tr class="candidate-manager-row" data-search="<?= htmlspecialchars(strtolower(implode(' ', [$previous['id'], $previous['name'], $previous['email'], $previous['role_title'], $previous['job_title']])), ENT_QUOTES) ?>" data-source="<?= htmlspecialchars(strtolower(trim((string)$previous['source_name'])), ENT_QUOTES) ?>" data-job="<?= $previous['job_id'] === null ? '__unassigned__' : (int)$previous['job_id'] ?>" data-stage="<?= htmlspecialchars(strtolower(trim((string)$previous['stage'])), ENT_QUOTES) ?>" data-date="<?= htmlspecialchars(date('Y-m-d', strtotime($previous['created_at'])), ENT_QUOTES) ?>">
             <td><input class="previous-candidate-check" type="checkbox" name="candidate_ids[]" value="<?= htmlspecialchars($previous['id'], ENT_QUOTES) ?>"></td>
             <td><strong><?= htmlspecialchars($previous['name']) ?></strong><br><small><?= htmlspecialchars($previous['email'] ?: 'No email') ?></small></td>
             <td><?= htmlspecialchars($previous['source_name'] ?: 'Unknown') ?></td>
@@ -1153,9 +1192,52 @@ function confirmBatchDelete() {
 const selectAllPrevious = document.getElementById('selectAllPrevious');
 if (selectAllPrevious) {
   selectAllPrevious.addEventListener('change', function () {
-    document.querySelectorAll('.previous-candidate-check').forEach(box => box.checked = this.checked);
+    document.querySelectorAll('.candidate-manager-row').forEach(row => {
+      if (!row.hidden) row.querySelector('.previous-candidate-check').checked = this.checked;
+    });
+    updateCandidateManagerCounts();
   });
 }
+
+const candidateManagerRows = Array.from(document.querySelectorAll('.candidate-manager-row'));
+const candidateFilterIds = ['candidateSearch', 'candidateSourceFilter', 'candidateJobFilter', 'candidateStageFilter', 'candidateDateFilter'];
+
+function updateCandidateManagerCounts() {
+  const visible = candidateManagerRows.filter(row => !row.hidden).length;
+  const selected = document.querySelectorAll('.previous-candidate-check:checked').length;
+  const visibleCount = document.getElementById('visibleCandidateCount');
+  const selectedCount = document.getElementById('selectedCandidateCount');
+  if (visibleCount) visibleCount.textContent = visible;
+  if (selectedCount) selectedCount.textContent = selected;
+}
+
+function filterCandidateManager() {
+  const search = document.getElementById('candidateSearch').value.trim().toLowerCase();
+  const source = document.getElementById('candidateSourceFilter').value;
+  const job = document.getElementById('candidateJobFilter').value;
+  const stage = document.getElementById('candidateStageFilter').value;
+  const date = document.getElementById('candidateDateFilter').value;
+  candidateManagerRows.forEach(row => {
+    const matches = (
+      (!search || row.dataset.search.includes(search)) &&
+      (!source || row.dataset.source === source) &&
+      (!job || row.dataset.job === job) &&
+      (!stage || row.dataset.stage === stage) &&
+      (!date || row.dataset.date === date)
+    );
+    row.hidden = !matches;
+    if (!matches) row.querySelector('.previous-candidate-check').checked = false;
+  });
+  if (selectAllPrevious) selectAllPrevious.checked = false;
+  updateCandidateManagerCounts();
+}
+
+candidateFilterIds.forEach(id => {
+  const field = document.getElementById(id);
+  if (field) field.addEventListener(id === 'candidateSearch' ? 'input' : 'change', filterCandidateManager);
+});
+document.querySelectorAll('.previous-candidate-check').forEach(box => box.addEventListener('change', updateCandidateManagerCounts));
+updateCandidateManagerCounts();
 
 function previousSelectionCount() {
   return document.querySelectorAll('.previous-candidate-check:checked').length;
@@ -1181,7 +1263,7 @@ function validatePreviousUploadAction(event) {
 function confirmPreviousDelete() {
   const selected = previousSelectionCount();
   if (!selected) {
-    alert('Select at least one previous upload to delete.');
+    alert('Select at least one candidate to delete.');
     return false;
   }
   return confirm('Permanently delete ' + selected + ' selected candidate(s) from ResumeIQ? Original source-system records will not be deleted and may return on a future sync.');
