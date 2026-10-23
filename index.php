@@ -3,6 +3,7 @@ require_once __DIR__ . '/lib/auth.php';
 requireAuth();
 require_once __DIR__ . '/lib/workspace.php';
 require_once __DIR__ . '/lib/branding.php';
+require_once __DIR__ . '/lib/resume_storage.php';
 
 $pdo = db();
 $user = currentUser();
@@ -734,20 +735,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reass
         $assignmentSkills = json_decode($assignmentJob['required_skills_json'] ?? '[]', true) ?: [];
         $assignmentJd = implode(', ', $assignmentSkills).' '.trim((string)$assignmentJob['description']);
         $marks = implode(',', array_fill(0, count($candidateIds), '?'));
-        $candidateStmt = $pdo->prepare("SELECT id,name,stored_file FROM candidates WHERE id IN ($marks) AND source_name='Direct upload'");
+        $candidateStmt = $pdo->prepare("SELECT id,name,stored_file,source_url,source_name FROM candidates WHERE id IN ($marks)");
         $candidateStmt->execute($candidateIds);
         $selectedCandidates = $candidateStmt->fetchAll();
-        if (!$selectedCandidates) throw new Exception('No eligible direct-upload candidates were found.');
-        $uploadsRoot = realpath(__DIR__.'/uploads');
+        if (!$selectedCandidates) throw new Exception('No eligible candidates were found.');
         $updateCandidate = $pdo->prepare('UPDATE candidates SET job_id=?,score=?,skills_json=?,experience_json=?,analysis_json=? WHERE id=?');
         $reassigned = 0;
         foreach ($selectedCandidates as $selectedCandidate) {
-            $stored = trim((string)$selectedCandidate['stored_file']);
-            $candidatePath = $uploadsRoot && $stored !== ''
-                ? realpath(__DIR__.'/uploads/'.str_replace(['\\','/'], DIRECTORY_SEPARATOR, $stored))
-                : false;
-            if (!$candidatePath || !is_file($candidatePath) || !str_starts_with(strtolower($candidatePath), strtolower($uploadsRoot.DIRECTORY_SEPARATOR))) {
-                $managementResults[] = ['name'=>$selectedCandidate['name'],'status'=>'error','message'=>'Protected resume file is missing.'];
+            $candidatePath = resolveCandidateResumePath($selectedCandidate, (int)($user['id'] ?? 0));
+            if (!$candidatePath) {
+                $managementResults[] = ['name'=>$selectedCandidate['name'],'status'=>'error','message'=>'Protected resume is missing or could not be securely retrieved.'];
                 continue;
             }
             $extension = strtolower(pathinfo($candidatePath, PATHINFO_EXTENSION));
@@ -795,7 +792,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reass
     }
 }
 
-$previousUploads = $pdo->query("SELECT c.id,c.name,c.email,c.role_title,c.score,c.stage,c.stored_file,c.created_at,c.updated_at,c.job_id,j.title job_title FROM candidates c LEFT JOIN jobs j ON j.id=c.job_id WHERE c.source_name='Direct upload' ORDER BY c.created_at DESC,c.id DESC LIMIT 500")->fetchAll();
+$previousUploads = $pdo->query("SELECT c.id,c.name,c.email,c.role_title,c.score,c.stage,c.source_name,c.stored_file,c.source_url,c.created_at,c.updated_at,c.job_id,j.title job_title FROM candidates c LEFT JOIN jobs j ON j.id=c.job_id ORDER BY c.created_at DESC,c.id DESC LIMIT 500")->fetchAll();
 
 $activePage = 'scan';
 $pageTitle = 'Resume Parser & Ingestion Hub · NonceBlox ATS';
@@ -979,7 +976,7 @@ require __DIR__ . '/views/partials/header.php';
 </div>
 
 <details class="panel upload-manager" id="previousUploads">
-  <summary><i class="fa-solid fa-folder-open" style="color:#6366f1"></i> Manage Previous Uploads (<?= count($previousUploads) ?>)</summary>
+  <summary><i class="fa-solid fa-users-gear" style="color:#6366f1"></i> Manage All Candidates (<?= count($previousUploads) ?>)</summary>
   <form method="post" action="index.php#previousUploads" id="previousUploadForm" onsubmit="return validatePreviousUploadAction(event)">
     <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES) ?>">
     <input type="hidden" name="action" value="reassign_candidates">
@@ -998,15 +995,19 @@ require __DIR__ . '/views/partials/header.php';
         <button class="btn" type="submit" formaction="candidate_delete.php" onclick="return confirmPreviousDelete()" style="color:#b91c1c;border-color:#fecaca"><i class="fa-solid fa-trash"></i> Delete selected</button>
       <?php endif; ?>
     </div>
+    <div style="padding:9px 18px;background:#fff7ed;color:#9a3412;font-size:11px;border-bottom:1px solid #fed7aa">
+      Delete removes the candidate from ResumeIQ only. Original NonceBlox/source-system applications remain unchanged and may return on a future source sync.
+    </div>
     <div class="manager-table-wrap">
       <table class="manager-table">
-        <thead><tr><th></th><th>Candidate</th><th>Current job</th><th>Score</th><th>Stage</th><th>Uploaded</th></tr></thead>
+        <thead><tr><th></th><th>Candidate</th><th>Source</th><th>Current job</th><th>Score</th><th>Stage</th><th>Added</th></tr></thead>
         <tbody>
-<?php if (!$previousUploads): ?><tr><td colspan="6">No previous direct uploads found.</td></tr><?php endif; ?>
+<?php if (!$previousUploads): ?><tr><td colspan="7">No candidates found.</td></tr><?php endif; ?>
         <?php foreach ($previousUploads as $previous): ?>
           <tr>
             <td><input class="previous-candidate-check" type="checkbox" name="candidate_ids[]" value="<?= htmlspecialchars($previous['id'], ENT_QUOTES) ?>"></td>
             <td><strong><?= htmlspecialchars($previous['name']) ?></strong><br><small><?= htmlspecialchars($previous['email'] ?: 'No email') ?></small></td>
+            <td><?= htmlspecialchars($previous['source_name'] ?: 'Unknown') ?></td>
             <td><?= htmlspecialchars($previous['job_title'] ?: 'Unassigned') ?></td>
             <td><?= (int)$previous['score'] ?>%</td>
             <td><?= htmlspecialchars($previous['stage']) ?></td>
@@ -1183,7 +1184,7 @@ function confirmPreviousDelete() {
     alert('Select at least one previous upload to delete.');
     return false;
   }
-  return confirm('Permanently delete ' + selected + ' selected candidate(s)? This cannot be undone.');
+  return confirm('Permanently delete ' + selected + ' selected candidate(s) from ResumeIQ? Original source-system records will not be deleted and may return on a future sync.');
 }
 
 function copyRawText() {
