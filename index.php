@@ -5,6 +5,7 @@ require_once __DIR__ . '/lib/workspace.php';
 require_once __DIR__ . '/lib/branding.php';
 require_once __DIR__ . '/lib/resume_storage.php';
 require_once __DIR__ . '/lib/ctc.php';
+require_once __DIR__ . '/lib/doc_parser.php';
 
 $pdo = db();
 $user = currentUser();
@@ -329,7 +330,10 @@ function extractDocxText(string $file): array {
 }
 
 function extractDocText(string $file): array {
-    return ['text' => '', 'requires_ocr' => false, 'error' => 'Legacy binary .DOC parser not available. Please save as .DOCX or .PDF.'];
+    // Shared with test_extraction.php: pure-PHP Word 97-2003 reader, then antiword/catdoc/LibreOffice.
+    $result = docExtractText($file);
+    if ($result['text'] !== '') $result['text'] = cleanText($result['text']);
+    return $result;
 }
 
 function extractResumeText(string $file, string $ext): array {

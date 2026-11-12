@@ -149,35 +149,13 @@ function extractDocxText(string $file): array {
     ];
 }
 
+require_once __DIR__ . '/lib/doc_parser.php';
+
 function extractDocText(string $file): array {
-    if (function_exists('shell_exec')) {
-        if (commandExists('antiword')) {
-            $out = shell_exec('antiword ' . escapeshellarg($file) . ' 2>&1');
-            if (!empty(trim((string)$out))) return ['text' => cleanText($out), 'requires_ocr' => false, 'error' => null];
-        }
-        if (commandExists('catdoc')) {
-            $out = shell_exec('catdoc ' . escapeshellarg($file) . ' 2>&1');
-            if (!empty(trim((string)$out))) return ['text' => cleanText($out), 'requires_ocr' => false, 'error' => null];
-        }
-        if (commandExists('libreoffice') || commandExists('soffice')) {
-            $bin = commandExists('libreoffice') ? 'libreoffice' : 'soffice';
-            $dir = sys_get_temp_dir() . '/resume_doc_' . uniqid();
-            @mkdir($dir, 0777, true);
-            shell_exec($bin . ' --headless --convert-to txt:Text --outdir ' . escapeshellarg($dir) . ' ' . escapeshellarg($file) . ' 2>&1');
-            $txt = $dir . '/' . pathinfo($file, PATHINFO_FILENAME) . '.txt';
-            if (file_exists($txt)) {
-                $text = file_get_contents($txt);
-                @unlink($txt); @rmdir($dir);
-                if ($text !== false && trim($text) !== '') return ['text' => cleanText($text), 'requires_ocr' => false, 'error' => null];
-            }
-            @rmdir($dir);
-        }
-    }
-    return [
-        'text' => '',
-        'requires_ocr' => false,
-        'error' => 'Legacy binary .DOC parser not available on server (antiword/catdoc/LibreOffice required). Please save as .DOCX or .PDF.'
-    ];
+    // Same implementation as index.php (lib/doc_parser.php).
+    $result = docExtractText($file);
+    if ($result['text'] !== '') $result['text'] = cleanText($result['text']);
+    return $result;
 }
 
 function extractResumeText(string $file, string $ext): array {
@@ -201,6 +179,12 @@ echo "=== SCANNING POC VERIFICATION TEST ===\n\n";
 foreach ($files as $filePath => $ext) {
     echo "Testing File: $filePath ($ext)\n";
     $fullPath = __DIR__ . '/' . $filePath;
+    if (!is_file($fullPath)) {
+        echo "Status        : MISSING SAMPLE (run create_test_samples.php)
+--------------------------------------------------------
+";
+        continue;
+    }
     $res = extractResumeText($fullPath, $ext);
 
     echo "Status        : " . ($res['requires_ocr'] ? 'REQUIRES_OCR' : ($res['error'] ? 'ERROR / FAILED' : 'SUCCESS')) . "\n";
