@@ -6,6 +6,8 @@ $profileStmt=$pdo->prepare('SELECT * FROM wishlist_profiles WHERE job_id=? AND u
 $profileOptionsStmt=$pdo->prepare('SELECT wp.job_id,j.title,COUNT(CASE WHEN wi.disposition=\'wishlist\' THEN 1 END) favourite_count FROM wishlist_profiles wp JOIN jobs j ON j.id=wp.job_id LEFT JOIN wishlist_items wi ON wi.profile_id=wp.id WHERE wp.user_id=? GROUP BY wp.id,wp.job_id,j.title ORDER BY j.title');$profileOptionsStmt->execute([$user['id']]);$profileOptions=$profileOptionsStmt->fetchAll();
 $all=array_values(array_filter(loadCandidateRecords(),fn($candidate)=>(int)($candidate['job_id']??0)===$jobId));
 $wishStmt=$pdo->prepare("SELECT candidate_id FROM wishlist_items WHERE profile_id=? AND disposition='wishlist'");$wishStmt->execute([$profile['id']]);$preselected=array_flip(array_column($wishStmt->fetchAll(),'candidate_id'));
+// Re-invite flow (interview_reinvite.php): preselect only that candidate.
+$reinviteId=trim((string)($_GET['reinvite']??''));if($reinviteId!==''){$preselected=[$reinviteId=>0];$message='Ready to re-invite: the expired invitation was cancelled. Choose a new interview window below and send. Only this candidate is selected.';}
 $lockStmt=$pdo->prepare('SELECT candidate_id FROM interview_invite_locks WHERE profile_id=? AND active=1');$lockStmt->execute([$profile['id']]);$locked=array_fill_keys($lockStmt->fetchAll(PDO::FETCH_COLUMN),true);
 usort($all,function($a,$b)use($preselected,$locked){
     $aPre=isset($preselected[$a['id']])?1:0;

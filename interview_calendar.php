@@ -403,7 +403,14 @@ require __DIR__.'/views/partials/header.php';
               Link valid <?=$item['days_left']<=1?'until today':'for '.$item['days_left'].' more days'?> · <?=(int)$item['open_slots']?> open slot<?=(int)$item['open_slots']===1?'':'s'?>
             <?php endif?>
           </small>
-          <div style="margin-top:10px">
+          <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+            <?php if($item['link_expired']):?>
+            <form method="post" action="interview_reinvite.php" onsubmit="return confirm('Cancel the expired invitation for <?=htmlspecialchars(addslashes($item['candidate_name']),ENT_QUOTES)?> and open a new invitation for them? Nothing is emailed until you choose a new window and send.')">
+              <input type="hidden" name="csrf" value="<?=htmlspecialchars(csrfToken())?>">
+              <input type="hidden" name="invitation_id" value="<?=(int)$item['id']?>">
+              <button type="submit" class="btn btn-primary" style="font-size:11px;padding:6px 12px;border-radius:6px;background:#18a66f;border:0;color:#fff;cursor:pointer"><i class="fa-solid fa-rotate-right"></i> Re-invite with new window</button>
+            </form>
+            <?php endif?>
             <button type="button" class="btn btn-primary" onclick='openResendPopupModal(<?=json_encode($resendData, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>)' style="font-size:11px;padding:6px 12px;border-radius:6px;background:#6366f1;color:#fff;border:0;cursor:pointer;font-weight:700">
               <i class="fa-solid fa-paper-plane"></i> Send / Resend Custom Email
             </button>
