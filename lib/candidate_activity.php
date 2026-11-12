@@ -39,8 +39,12 @@ function candidateActivityTimeline(PDO $pdo,array $candidate,?array &$raw=null):
         if(!empty($row['outcome']))$add((string)($row['outcome_at']?:$row['created_at']),'outcome','Interview outcome: '.str_replace('_',' ',(string)$row['outcome']),'Recruiter-recorded outcome',in_array($row['outcome'],['selected','offer_accepted','hired'],true)?'success':(in_array($row['outcome'],['rejected','no_show','offer_declined'],true)?'danger':'info'));
     }
 
+    // Offer/appointment letters (table added by migration 20261112_offer_letters; absent on older databases).
+    $raw['offers']=[];
+    try{$s=$pdo->prepare('SELECT id,letter_type,status,designation,sent_at,viewed_at,responded_at,response_name,created_at FROM offer_letters WHERE candidate_id=? ORDER BY id');$s->execute([$id]);$raw['offers']=$s->fetchAll();}catch(Throwable $e){}
+
     $s=$pdo->prepare("SELECT action,metadata_json,created_at FROM audit_events WHERE entity_type='candidate' AND entity_id=? ORDER BY created_at");$s->execute([$id]);$raw['audit']=$s->fetchAll();
-    $skip=['interview.invitation_sent','interview.invitation_failed','interview.outcome_recorded'];
+    $skip=['interview.invitation_sent','interview.invitation_failed','interview.outcome_recorded','offer_letter.downloaded'];
     foreach($raw['audit'] as $row){if(in_array($row['action'],$skip,true))continue;$meta=json_decode($row['metadata_json']??'{}',true)?:[];$detail='';if(isset($meta['outcome']))$detail='Outcome: '.str_replace('_',' ',(string)$meta['outcome']);elseif(isset($meta['reason']))$detail='Reason: '.str_replace('_',' ',(string)$meta['reason']);$title=ucwords(str_replace(['.','_'],' ',(string)$row['action']));$state=str_contains((string)$row['action'],'failed')?'danger':(str_contains((string)$row['action'],'analyzed')?'success':'neutral');$add((string)$row['created_at'],'audit',$title,$detail,$state);}
 
     usort($events,static fn($a,$b)=>strcmp($b['at'],$a['at']));return $events;
@@ -138,10 +142,22 @@ function candidateJourney(array $candidate, array $raw, int $noteCount = 0): arr
     }
     $push('interviewed', 'Interviewed', $intState, $fmt($invite['outcome_at'] ?? $stageAt['round 2'] ?? null), $intDetail);
 
+    // Offer letters (latest non-withdrawn offer letter drives the Offer step).
+    $offerLetters = array_values(array_filter($raw['offers'] ?? [], fn($o) => ($o['letter_type'] ?? '') === 'offer_letter' && ($o['status'] ?? '') !== 'withdrawn'));
+    $letter = $offerLetters ? $offerLetters[count($offerLetters) - 1] : null;
+    $letterStatus = $letter['status'] ?? null;
+    $isHired = $stageLc === 'hired';
+    $appointmentSent = (bool)array_filter($raw['offers'] ?? [], fn($o) => ($o['letter_type'] ?? '') === 'hiring_letter' && in_array($o['status'] ?? '', ['sent', 'accepted'], true));
+    $candidateUrl = 'offer_letter.php?candidate_id=' . rawurlencode((string)($candidate['id'] ?? ''));
+
     $decState = 'pending';
     $decDetail = '';
     $decAt = null;
-    if ($isRejected) {
+    if ($isHired || in_array($letterStatus, ['sent', 'accepted'], true)) {
+        $decState = 'done';
+        $decDetail = 'Selected';
+        $decAt = $fmt($stageAt['offer'] ?? $letter['sent_at'] ?? null);
+    } elseif ($isRejected) {
         $decState = 'failed';
         $decDetail = $blacklisted ? 'Blacklisted' : 'Rejected';
         $decAt = $fmt($rejectedAt);
@@ -157,7 +173,21 @@ function candidateJourney(array $candidate, array $raw, int $noteCount = 0): arr
     $offerSentAt = $stageMail['offer'] ?? null;
     $offerState = 'pending';
     $offerDetail = '';
-    if ($outcome === 'offer_declined') {
+    if ($letterStatus === 'accepted') {
+        $offerState = 'done';
+        $offerSentAt = $letter['responded_at'];
+        $offerDetail = 'Offer letter accepted' . (!empty($letter['response_name']) ? ' by ' . $letter['response_name'] : '');
+    } elseif ($letterStatus === 'declined') {
+        $offerState = 'failed';
+        $offerSentAt = $letter['responded_at'];
+        $offerDetail = 'Offer letter declined';
+    } elseif ($letterStatus === 'sent') {
+        $offerState = 'done';
+        $offerSentAt = $letter['sent_at'];
+        $offerDetail = 'Offer letter sent · ' . (!empty($letter['viewed_at']) ? 'opened ' . $fmt($letter['viewed_at']) : 'not opened yet');
+    } elseif ($letterStatus === 'draft' && !$isHired) {
+        $offerDetail = 'Draft letter saved, not sent';
+    } elseif ($outcome === 'offer_declined') {
         $offerState = 'failed';
         $offerDetail = 'Offer declined';
     } elseif ($outcome === 'offer_accepted' || $outcome === 'hired') {
@@ -169,7 +199,20 @@ function candidateJourney(array $candidate, array $raw, int $noteCount = 0): arr
     }
     $push('offer', 'Offer', $offerState, $fmt($offerSentAt), $offerDetail);
 
-    $push('joined', 'Joined', $outcome === 'hired' ? 'done' : 'pending', null, $outcome === 'hired' ? 'Marked hired' : '');
+    $joinedDone = $isHired || $outcome === 'hired';
+    $push('joined', 'Joined', $joinedDone ? 'done' : 'pending', $fmt($stageAt['hired'] ?? null),
+        $isHired ? 'Hired' . ($appointmentSent ? ' · appointment letter sent' : '') : ($outcome === 'hired' ? 'Marked hired at interview' : ''));
+
+    // Earlier steps with no record but a later step done were handled outside the ATS.
+    $lastDone = -1;
+    foreach ($steps as $i => $step) if ($step['state'] === 'done') $lastDone = $i;
+    foreach ($steps as $i => &$step) {
+        if ($i < $lastDone && $step['state'] === 'pending') {
+            $step['state'] = 'skipped';
+            $step['detail'] = 'Not recorded in ATS';
+        }
+    }
+    unset($step);
 
     // After a failure, later steps can no longer happen.
     $closed = false;
@@ -201,6 +244,11 @@ function candidateJourney(array $candidate, array $raw, int $noteCount = 0): arr
     // interview_invite.php needs the job; without one, send the recruiter to assign/shortlist first.
     $inviteUrl = !empty($candidate["job_id"]) ? "interview_invite.php?job_id=" . (int)$candidate["job_id"] : "candidates.php";
     $next = match (true) {
+        $isHired && !$appointmentSent => ['text' => 'Hired. Send the appointment letter and policies.', 'url' => $candidateUrl . '&type=hiring_letter', 'tone' => 'success'],
+        $isHired => ['text' => 'Hiring journey complete.', 'url' => 'employees.php?tab=employees', 'tone' => 'success'],
+        $letterStatus === 'accepted' => ['text' => 'Offer accepted. Mark the candidate as hired.', 'url' => $candidateUrl, 'tone' => 'success'],
+        $letterStatus === 'sent' => ['text' => 'Waiting for the candidate to accept the offer letter (' . (!empty($letter['viewed_at']) ? 'opened ' . $fmt($letter['viewed_at']) : 'not opened yet') . ').', 'url' => $candidateUrl, 'tone' => 'info'],
+        $letterStatus === 'declined' => ['text' => 'Offer letter was declined. Consider the next shortlisted candidate.', 'url' => 'wishlist.php', 'tone' => 'muted'],
         ($failed['key'] ?? '') === 'decision' => ['text' => 'Closed — ' . strtolower($failed['detail']) . ($failed['at'] ? ' on ' . $failed['at'] : '') . '.', 'url' => null, 'tone' => 'muted'],
         ($failed['key'] ?? '') === 'booked' => ['text' => 'The booking link expired without a slot. Send a new interview invitation with a fresh window.', 'url' => $inviteUrl, 'tone' => 'warn'],
         ($failed['key'] ?? '') === 'interviewed' => ['text' => 'Candidate missed the interview. Re-invite, or move to Rejected.', 'url' => $inviteUrl, 'tone' => 'warn'],
@@ -209,9 +257,9 @@ function candidateJourney(array $candidate, array $raw, int $noteCount = 0): arr
         $currentKey === 'invited' => ['text' => 'Send an interview invitation so the candidate can pick a slot.', 'url' => $inviteUrl, 'tone' => 'info'],
         $currentKey === 'booked' => ['text' => 'Waiting for the candidate to book a slot. ' . $bookedDetail . '.', 'url' => 'interview_calendar.php', 'tone' => 'info'],
         $currentKey === 'interviewed' => ['text' => 'After the interview, record the outcome and add evaluation notes.', 'url' => 'interview_calendar.php', 'tone' => 'info'],
-        $currentKey === 'decision' => ['text' => 'Decide: move to Offer to select, or to Rejected. A stage email preview opens before anything is sent.', 'url' => null, 'tone' => 'info'],
-        $currentKey === 'offer' => ['text' => 'Move the candidate to Offer to preview and send the offer email.', 'url' => null, 'tone' => 'info'],
-        $currentKey === 'joined' => ['text' => 'Offer is out. Confirm joining once the candidate accepts.', 'url' => null, 'tone' => 'info'],
+        $currentKey === 'decision' => ['text' => 'Decide: create an offer letter to select, or move to Rejected.', 'url' => $candidateUrl, 'tone' => 'info'],
+        $currentKey === 'offer' => ['text' => $letterStatus === 'draft' ? 'A draft offer letter is saved. Review and send it.' : 'Create and send the offer letter.', 'url' => $candidateUrl, 'tone' => 'info'],
+        $currentKey === 'joined' => ['text' => 'Offer is out. Mark as hired once the candidate accepts.', 'url' => $candidateUrl, 'tone' => 'info'],
         default => ['text' => 'Hiring journey complete.', 'url' => null, 'tone' => 'success'],
     };
 

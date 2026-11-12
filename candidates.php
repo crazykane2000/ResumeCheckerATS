@@ -105,7 +105,10 @@ foreach($items as $item){
     elseif($cName!=='')$countries[$cName]=$cName;
 }
 
+$hiredCount=0;
 foreach($items as $candidate){
+    // Hired people leave the active candidate list; they are listed on employees.php.
+    if(strcasecmp((string)($candidate['stage']??''),'Hired')===0){$hiredCount++;continue;}
     $cJobId=(int)($candidate['job_id']??0);
     if($activeJobId > 0 && $cJobId !== $activeJobId){
         continue;
@@ -316,7 +319,7 @@ require __DIR__.'/views/partials/header.php';
         <div class="section-title">
             <div>
                 <h2><?=htmlspecialchars($activeJob['title']??'All Candidates')?></h2>
-                <small><?=count($candidates)?> shown · <?=count($favourites)?> in wishlist</small>
+                <small><?=count($candidates)?> shown · <?=count($favourites)?> in wishlist<?php if($hiredCount):?> · <a href="employees.php?tab=employees"><?=$hiredCount?> hired → Employees</a><?php endif?></small>
             </div>
             <span class="tag">Top 5 highlighted</span>
         </div>

@@ -84,6 +84,34 @@ function fetchRecruiterNotifications(PDO $pdo, int $limit = 10): array {
         }
     } catch (Throwable $e) {}
 
+    // 4. Offer / appointment letter responses from the candidate portal
+    try {
+        $offerStmt = $pdo->prepare("
+            SELECT o.id, o.candidate_id, o.letter_type, o.status, o.designation, o.responded_at, c.name AS candidate_name
+            FROM offer_letters o
+            JOIN candidates c ON c.id = o.candidate_id
+            WHERE o.status IN ('accepted','declined') AND o.responded_at IS NOT NULL
+            ORDER BY o.responded_at DESC
+            LIMIT ?
+        ");
+        $offerStmt->bindValue(1, $limit, PDO::PARAM_INT);
+        $offerStmt->execute();
+        foreach ($offerStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $accepted = $row['status'] === 'accepted';
+            $isOffer = $row['letter_type'] === 'offer_letter';
+            $notifications[] = [
+                'id' => 'offer_' . $row['id'],
+                'type' => 'offer_' . $row['status'],
+                'title' => $isOffer ? ($accepted ? 'Offer Accepted' : 'Offer Declined') : 'Appointment Letter Acknowledged',
+                'message' => $row['candidate_name'] . ($isOffer ? ($accepted ? ' accepted' : ' declined') . ' the offer for ' : ' acknowledged the appointment letter for ') . $row['designation'] . '.',
+                'url' => 'offer_letter.php?candidate_id=' . urlencode($row['candidate_id']),
+                'at' => $row['responded_at'],
+                'icon' => $accepted ? 'fa-handshake' : 'fa-circle-xmark',
+                'color' => $accepted ? '#15803d' : '#b91c1c'
+            ];
+        }
+    } catch (Throwable $e) {}
+
     usort($notifications, static fn($a, $b) => strcmp($b['at'], $a['at']));
     return array_slice($notifications, 0, $limit);
 }

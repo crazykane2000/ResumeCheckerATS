@@ -11,6 +11,8 @@ $nav=[
   ['outreach','outreach.php','fa-paper-plane','Hiring Outreach','Hiring Outreach — Create Campaign'],
   ['outreach_history','outreach_history.php','fa-clock-rotate-left','Outreach History','Outreach History — Campaign Reports'],
   ['email_history','email_batch_history.php','fa-envelope-open-text','Email History & Resets','Email History — Dispatches & Batch Resets'],
+  ['employees','employees.php','fa-id-badge','Offers & Employees','Offers & Employees — Offer Tracker & Hired'],
+  ['documents','documents.php','fa-file-signature','Letters & Policies','Letters & Policies — Offer, Appointment & Policy Templates'],
   ['integrations','integrations.php','fa-plug','Integrations','Integrations — Email & SMTP'],
   ['scan','index.php','fa-file-arrow-up','Resume Upload','Resume Upload — Parse & Ingest Resume'],
   ['settings','settings.php','fa-gear','Settings','Settings — Account & Branding']

@@ -134,7 +134,10 @@ foreach ($rawCandidates as $cand) {
     $invStatus = trim((string)($cand['invitation_status'] ?? ''));
     $hasSlot = !empty($cand['slot_starts_at']);
 
-    if (strcasecmp($stage, 'Rejected') === 0) {
+    if (strcasecmp($stage, 'Hired') === 0) {
+        // Hired people leave the active pipeline; they are listed on employees.php.
+        continue;
+    } elseif (strcasecmp($stage, 'Rejected') === 0) {
         $activeColumns['Rejected']['items'][] = $cand;
     } elseif (strcasecmp($stage, 'Offer') === 0) {
         $activeColumns['Offer']['items'][] = $cand;
@@ -1379,6 +1382,9 @@ require __DIR__ . '/views/partials/header.php';
     <a href="#" class="btn" id="drawerResumeLink" target="_blank" style="background:#ffffff; color:#334155; font-weight:600; font-size:12px; padding:7px 14px; border-radius:6px; border:1px solid #cbd5e1; text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
       <i class="fa-solid fa-file-lines" style="color:#6f45ff;"></i> Resume
     </a>
+    <a href="#" class="btn" id="drawerOfferLink" target="_blank" rel="noopener" style="background:#ffffff; color:#334155; font-weight:600; font-size:12px; padding:7px 14px; border-radius:6px; border:1px solid #cbd5e1; text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+      <i class="fa-solid fa-file-signature" style="color:#18a66f;"></i> Offer letter
+    </a>
     <button type="button" class="btn" id="drawerMoveStageBtn" style="background:#f5f3ff; color:#7c3aed; font-weight:700; font-size:12px; padding:7px 14px; border-radius:6px; border:1px solid #ddd6fe; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
       <i class="fa-solid fa-paper-plane"></i> Stage Mail / Move
     </button>
@@ -1783,6 +1789,9 @@ async function openCandidateDrawer(candidateId) {
 
     const detailLink = document.getElementById('drawerDetailLink');
     if (detailLink) detailLink.href = c.detail_url;
+
+    const offerLink = document.getElementById('drawerOfferLink');
+    if (offerLink) offerLink.href = 'offer_letter.php?candidate_id=' + encodeURIComponent(c.id);
 
     const moveBtn = document.getElementById('drawerMoveStageBtn');
     if (moveBtn) {
