@@ -38,6 +38,13 @@ RESUMEIQ_SCHEDULING_API_URL=https://resume.nonceblox.com/public_interview_api.ph
 
 In ResumeIQ Settings, keep the external booking URL as `https://nonceblox.com/interview-schedule.php`. Test one invitation token end-to-end after both sites have valid SSL.
 
+## Offer letters & candidate portal
+
+1. Apply `database/migrations/20261112_offer_letters.sql` (new tables only; already applied to the shared database on 2026-11-12).
+2. Candidate emails link to `offer.php` on the public app URL. It defaults to `https://resume.nonceblox.com`; override with `RESUMEIQ_PUBLIC_URL=https://...` if the app lives elsewhere. Letters sent from a local copy use the same public URL, so deploy this release before sending real letters.
+3. Open **Letters & Policies** (`documents.php`) once to install and review the starter templates with HR/legal.
+4. `offer.php` and `offer_file.php?token=...` are intentionally public (token-protected, noindex). Do not block them in the web server.
+
 ## Scheduled jobs (hPanel → Advanced → Cron Jobs)
 
 Without these, new NonceBlox applicants are not imported and outreach campaigns only advance while a recruiter keeps the Outreach page open. Replace `<APP_DIR>` with the absolute path of the application folder (for example `/home/<user>/domains/resume.nonceblox.com/public_html`) and use the PHP 8.2+ binary path that hPanel shows.
