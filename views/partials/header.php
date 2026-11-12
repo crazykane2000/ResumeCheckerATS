@@ -3,6 +3,7 @@ require_once __DIR__.'/../../lib/auth.php';requireAuth();require_once __DIR__.'/
 $activePage=$activePage??'scan';$searchPlaceholder=$searchPlaceholder??'Search candidate, skill or role';$headerUser=currentUser();$brand=organizationBrand();$pageTitle=brandedPageTitle($pageTitle??null,$brand);$favicon=$brand['logo_path']?:'data:image/svg+xml,'.rawurlencode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#6f45ff"/><text x="32" y="42" text-anchor="middle" font-size="34" fill="white">N</text></svg>');$pageStyles='<link rel="icon" href="'.htmlspecialchars($favicon,ENT_QUOTES).'">'.($pageStyles??'');
 $nav=[
   ['analytics','analytics.php','fa-chart-line','Analytics','Analytics — Hiring Metrics'],
+  ['reports','reports.php','fa-chart-column','Hiring Reports','Hiring Reports — Funnel, Speed & Offers'],
   ['candidates','candidates.php','fa-users','Candidates','Candidates — Applicant Database'],
   ['duplicates','candidate_duplicates.php','fa-clone','Duplicates','Duplicates — Review & Delete Candidate Copies'],
   ['pipeline','pipeline.php','fa-bars-progress','Pipeline','Pipeline — Active Hiring Funnel'],
