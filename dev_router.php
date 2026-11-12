@@ -16,6 +16,17 @@ $target = realpath(__DIR__ . '/' . ltrim($path, '/'));
 $inside = static fn(string|false $file, string|false $dir): bool => $file !== false && $dir !== false
     && (strcasecmp($file, $dir) === 0 || stripos($file, $dir . DIRECTORY_SEPARATOR) === 0);
 
+// Mirror the root .htaccess deny list for internal folders (sessions, encryption key, scripts, ...).
+$segmentOf = static fn(string $p): string => strtolower(explode('/', trim(str_replace('\\', '/', $p), '/'))[0] ?? '');
+$root = realpath(__DIR__);
+$resolvedSegment = ($target !== false && $root !== false && stripos($target, $root . DIRECTORY_SEPARATOR) === 0)
+    ? $segmentOf(substr($target, strlen($root) + 1)) : '';
+$denied = ['config', 'database', 'docs', 'scripts', 'test_samples', 'data', 'tmp', 'vendor', 'scratch', 'deploy', 'migrations'];
+if (in_array($segmentOf($path), $denied, true) || in_array($resolvedSegment, $denied, true) ||preg_match('/(?:^|\/)\.(?:env|git)|\.(?:sql|log|ini|md|lock)$/i', $path)) {
+    http_response_code(403);
+    exit('Forbidden');
+}
+
 if ($inside($target, $uploads)) {
     $isBrandImage = $inside($target, $branding)
         && is_file($target)

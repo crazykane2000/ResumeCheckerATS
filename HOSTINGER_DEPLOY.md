@@ -38,6 +38,19 @@ RESUMEIQ_SCHEDULING_API_URL=https://resume.nonceblox.com/public_interview_api.ph
 
 In ResumeIQ Settings, keep the external booking URL as `https://nonceblox.com/interview-schedule.php`. Test one invitation token end-to-end after both sites have valid SSL.
 
+## Scheduled jobs (hPanel → Advanced → Cron Jobs)
+
+Without these, new NonceBlox applicants are not imported and outreach campaigns only advance while a recruiter keeps the Outreach page open. Replace `<APP_DIR>` with the absolute path of the application folder (for example `/home/<user>/domains/resume.nonceblox.com/public_html`) and use the PHP 8.2+ binary path that hPanel shows.
+
+| Schedule | Command | What it does |
+| --- | --- | --- |
+| Every 30 minutes (`*/30 * * * *`) | `cd <APP_DIR> && php scripts/automatic_source_pipeline.php >> tmp/cron-sync.log 2>&1` | Imports new NonceBlox jobs/applicants (including form CTC), downloads and analyses new resumes. Stages and recruiter data are never changed. Has a lock, so overlapping runs exit. |
+| Every 5 minutes (`*/5 * * * *`) | `cd <APP_DIR> && php campaign_worker.php >> tmp/cron-outreach.log 2>&1` | Sends the next batch for outreach campaigns a recruiter has explicitly **started** (status `sending`). Drafts, paused and cancelled campaigns are never sent. |
+
+Check the two log files after the first runs. `tmp/` is blocked from the web and ignored by Git.
+
+The HTTP form `campaign_worker.php?key=...` is disabled unless a long random `CRON_SECRET` environment value is set; prefer the CLI command above.
+
 ## Production verification
 
 - Confirm unauthenticated dashboard requests redirect to login.

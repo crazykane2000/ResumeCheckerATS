@@ -2,7 +2,8 @@ Options -Indexes
 
 <IfModule mod_rewrite.c>
 RewriteEngine On
-RewriteRule ^(?:config|database|docs|scripts|test_samples)(?:/|$) - [F,L,NC]
+# Internal folders: sessions (tmp), encryption key + JSON data (data), CLI/dev scripts, dependencies.
+RewriteRule ^(?:config|database|docs|scripts|test_samples|data|tmp|vendor|scratch|deploy|migrations)(?:/|$) - [F,L,NC]
 RewriteRule ^(?:AGENTS\.md|PROJECT_SUMMARY\.md|ROLLBACK\.md|README(?:\.md|\.txt)?|composer\.(?:json|lock)|create_.*\.php|test_.*\.php|\.env(?:\..*)?)$ - [F,L,NC]
 </IfModule>
 

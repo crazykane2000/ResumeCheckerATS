@@ -21,7 +21,8 @@
 
 # Runtime output
 *.log
-/tmp/
+/tmp/*
+!/tmp/.htaccess
 /cache/
 /data/*.json
 /data/.app-key

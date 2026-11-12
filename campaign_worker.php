@@ -2,19 +2,22 @@
 // CLI & Cron Background Worker for Hiring Outreach Campaigns
 // Run via CLI/Cron: php campaign_worker.php
 // Or web request: campaign_worker.php?key=<CRON_SECRET>
+// Only campaigns in 'sending' status are processed (drafts are never sent).
 
 if (php_sapi_name() !== 'cli') {
-    require_once __DIR__ . '/config/database.php';
-    // Web request security check if called via HTTP
-    $expectedKey = getenv('CRON_SECRET') ?: 'nonceblox_outreach_worker_2026';
-    $givenKey = $_GET['key'] ?? $_POST['key'] ?? '';
-    if (!hash_equals($expectedKey, (string)$givenKey)) {
+    // Web access is disabled unless a CRON_SECRET environment value is configured.
+    // (Previously a default key was hard-coded here and published in the repository.)
+    $expectedKey = (string)getenv('CRON_SECRET');
+    $givenKey = (string)($_GET['key'] ?? $_POST['key'] ?? '');
+    if ($expectedKey === '' || !hash_equals($expectedKey, $givenKey)) {
         http_response_code(403);
+        header('Content-Type: application/json');
         exit(json_encode(['error' => 'Unauthorized worker access']));
     }
 }
 
-require_once __DIR__ . '/lib/database.php';
+// lib/outreach_campaign.php loads config/database.php and the mailers it needs.
+// (The previous require of the non-existent lib/database.php made every run fatal.)
 require_once __DIR__ . '/lib/outreach_campaign.php';
 
 $pdo = db();
