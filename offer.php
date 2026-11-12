@@ -4,6 +4,7 @@
 // The candidate can view the letter, download PDF/Word, read policies and accept/decline once.
 require_once __DIR__ . '/lib/auth.php';
 require_once __DIR__ . '/lib/offer_letters.php';
+require_once __DIR__ . '/lib/onboarding.php';
 
 header('Cache-Control: no-store');
 header('X-Robots-Tag: noindex, nofollow');
@@ -24,7 +25,35 @@ $audit = static function (string $action, array $offer, array $meta = []) use ($
     } catch (Throwable $e) {}
 };
 
-if ($offer && $offer['status'] !== 'draft' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+// Onboarding (after the offer is accepted): document uploads and bank details.
+$onboardingOpen = $offer && $offer['letter_type'] === 'offer_letter' && $offer['status'] === 'accepted' && onboardingTablesReady($pdo);
+if ($onboardingOpen && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['onboarding_action'])) {
+    $itemKey = (string)($_POST['item_key'] ?? '');
+    $checklist = onboardingChecklist();
+    try {
+        if (!verifyCsrf((string)($_POST['csrf'] ?? ''))) throw new RuntimeException('Your session expired. Please reload the page and try again.');
+        if (!isset($checklist[$itemKey])) throw new RuntimeException('Unknown checklist item.');
+        $existing = $pdo->prepare('SELECT status FROM onboarding_items WHERE offer_id=? AND item_key=?');
+        $existing->execute([$offer['id'], $itemKey]);
+        if ($existing->fetchColumn() === 'verified') throw new RuntimeException('This item is already verified by HR.');
+        $fields = ['file_path' => null, 'original_name' => null, 'mime' => null, 'size_bytes' => null, 'data_json' => null];
+        if ($checklist[$itemKey]['kind'] === 'file') {
+            $stored = onboardingStoreUpload($_FILES['document'] ?? [], (int)$offer['id']);
+            $fields = ['file_path' => $stored['path'], 'original_name' => $stored['original'], 'mime' => $stored['mime'], 'size_bytes' => $stored['size'], 'data_json' => null];
+        } else {
+            $fields['data_json'] = json_encode(onboardingBankData($_POST));
+        }
+        $pdo->prepare("INSERT INTO onboarding_items(offer_id,candidate_id,item_key,status,file_path,original_name,mime,size_bytes,data_json,submitted_at) VALUES(?,?,?,'submitted',?,?,?,?,?,NOW())
+            ON DUPLICATE KEY UPDATE status='submitted',file_path=VALUES(file_path),original_name=VALUES(original_name),mime=VALUES(mime),size_bytes=VALUES(size_bytes),data_json=VALUES(data_json),submitted_at=NOW(),reviewed_at=NULL,reviewed_by=NULL,review_note=NULL")
+            ->execute([$offer['id'], $offer['candidate_id'], $itemKey, $fields['file_path'], $fields['original_name'], $fields['mime'], $fields['size_bytes'], $fields['data_json']]);
+        $audit('onboarding.item_submitted', $offer, ['item' => $itemKey, 'kind' => $checklist[$itemKey]['kind'], 'size' => $fields['size_bytes']]);
+        header('Location: offer.php?token=' . rawurlencode($token) . '&uploaded=' . rawurlencode($itemKey) . '#onboarding');
+        exit;
+    } catch (Throwable $e) {
+        $error = $e instanceof RuntimeException ? $e->getMessage() : 'Could not save this item. Please try again.';
+    }
+}
+if ($offer && $offer['status'] !== 'draft' && $_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['onboarding_action'])) {
     $choice = (string)($_POST['response'] ?? '');
     $name = trim(preg_replace('/\s+/u', ' ', (string)($_POST['full_name'] ?? '')));
     $note = mb_substr(trim((string)($_POST['note'] ?? '')), 0, 1000);
@@ -67,6 +96,8 @@ $done = (string)($_GET['done'] ?? '');
 if ($done === 'accept') $notice = 'Thank you! Your acceptance has been recorded. Our HR team will contact you with the next steps.';
 if ($done === 'decline') $notice = 'Your response has been recorded. Thank you for letting us know, and we wish you the very best.';
 if ($done === 'acknowledge') $notice = 'Thank you for acknowledging your letter.';
+if (!empty($_GET['uploaded'])) $notice = 'Saved. HR will review it shortly.';
+if ($done === 'accept' && !empty($onboardingOpen)) $notice .= ' Please complete the onboarding checklist below.';
 $policies = $valid ? (json_decode((string)($offer['policy_ids_json'] ?? ''), true) ?: []) : [];
 $fmt = static fn(?string $d): string => ($d && strtotime($d)) ? date('d F Y', strtotime($d)) : '';
 $qs = $valid ? 'token=' . rawurlencode($token) : '';
@@ -93,6 +124,10 @@ details.policy{border:1px solid var(--line);border-radius:8px;margin-bottom:8px;
 .respond .check{display:flex;gap:8px;align-items:flex-start;color:var(--text);font-weight:500}
 .respond .btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}.respond button{border:0;border-radius:8px;padding:11px 18px;font-weight:600;font-size:14px;cursor:pointer}
 .btn-accept{background:var(--primary);color:#fff}.btn-decline{background:#fff;color:#b4233c;border:1px solid #f3c2cb!important}
+.onboarding .ob-item{border:1px solid var(--line);border-radius:10px;padding:11px 13px;margin-bottom:8px}.onboarding .ob-head{display:flex;justify-content:space-between;gap:10px;align-items:center}.onboarding .ob-head strong{font-size:13px}
+.ob-pill{font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;background:#f1f5f9;color:#64748b;white-space:nowrap}.ob-submitted .ob-pill{background:var(--amber-soft);color:#8c610d}.ob-verified .ob-pill{background:var(--green-soft);color:#0f7a52}.ob-rejected .ob-pill{background:#fff0f2;color:#b4233c}
+.ob-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.ob-form button{border:0;border-radius:8px;padding:8px 14px;font-weight:600;background:var(--primary);color:#fff;cursor:pointer}.ob-form input[type=file]{font-size:12px}
+.ob-bank{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;flex:1}.ob-bank input{padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13px}
 .foot{text-align:center;color:var(--muted);font-size:12px;margin-top:20px}
 </style></head>
 <body><main class="portal">
@@ -127,7 +162,7 @@ details.policy{border:1px solid var(--line);border-radius:8px;margin-bottom:8px;
         </div>
     </section>
 
-    <?= letterPaperHtml(sanitizeLetterHtml((string)$offer['body_html']), $brand, ['label' => $label, 'ref' => letterReference($offer, $brand)]) ?>
+    <?= letterPaperHtml(sanitizeLetterHtml((string)$offer['body_html'] . salaryBreakupHtml($offer['salary_breakup_json'] ?? null)), $brand, ['label' => $label, 'ref' => letterReference($offer, $brand)]) ?>
 
     <?php if ($policies): ?>
     <section class="card" style="margin-top:14px">
@@ -138,6 +173,42 @@ details.policy{border:1px solid var(--line);border-radius:8px;margin-bottom:8px;
     </section>
     <?php endif ?>
 
+    <?php if (!empty($onboardingOpen)): $obItems = onboardingItems($pdo, (int)$offer['id']); $obProg = onboardingProgress($obItems); ?>
+    <section class="card onboarding" id="onboarding" style="margin-top:14px">
+        <h2><i class="fa-solid fa-clipboard-check" style="color:var(--primary)"></i> Onboarding checklist</h2>
+        <p class="muted" style="margin:0 0 10px;font-size:13px">Welcome aboard! Please upload the documents below (PDF, JPG or PNG, up to 5 MB each). HR will verify them. <?= $obProg['verified'] ?> of <?= $obProg['total'] ?> verified.</p>
+        <?php foreach ($obItems as $key => $item): $st = $item['status']; ?>
+        <div class="ob-item ob-<?= htmlspecialchars($st) ?>">
+            <div class="ob-head">
+                <strong><?= htmlspecialchars($item['label']) ?><?= $item['required'] ? '' : ' <span class="muted" style="font-weight:400">(optional)</span>' ?></strong>
+                <span class="ob-pill"><?= htmlspecialchars(ONBOARDING_STATUS[$st] ?? $st) ?></span>
+            </div>
+            <?php if ($item['row'] && $item['kind'] === 'file' && $item['row']['original_name']): ?><small class="muted">Uploaded: <?= htmlspecialchars($item['row']['original_name']) ?></small><?php endif ?>
+            <?php if ($item['row'] && $item['kind'] === 'bank'): ?><small class="muted"><?= htmlspecialchars(onboardingMaskedBank($item['row']['data_json'])) ?></small><?php endif ?>
+            <?php if ($st === 'rejected' && !empty($item['row']['review_note'])): ?><small style="display:block;color:#b4233c">HR note: <?= htmlspecialchars($item['row']['review_note']) ?></small><?php endif ?>
+            <?php if ($st !== 'verified'): ?>
+            <form method="post" enctype="multipart/form-data" class="ob-form">
+                <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrfToken()) ?>"><input type="hidden" name="token" value="<?= htmlspecialchars($token) ?>">
+                <input type="hidden" name="onboarding_action" value="1"><input type="hidden" name="item_key" value="<?= htmlspecialchars($key) ?>">
+                <?php if ($item['kind'] === 'file'): ?>
+                    <input type="file" name="document" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" required>
+                    <button type="submit"><?= $item['row'] ? 'Replace' : 'Upload' ?></button>
+                <?php else: ?>
+                    <div class="ob-bank">
+                        <input type="text" name="account_holder" placeholder="Account holder name" maxlength="120" required>
+                        <input type="text" name="bank_name" placeholder="Bank name" maxlength="120" required>
+                        <input type="text" name="account_number" placeholder="Account number / IBAN" maxlength="40" required autocomplete="off">
+                        <input type="text" name="bank_code" placeholder="IFSC / SWIFT code" maxlength="15" required>
+                    </div>
+                    <button type="submit"><?= $item['row'] ? 'Update details' : 'Save details' ?></button>
+                <?php endif ?>
+            </form>
+            <?php endif ?>
+        </div>
+        <?php endforeach ?>
+        <p class="muted" style="font-size:11px;margin:10px 0 0">Your documents are stored privately and are visible only to the HR team. Bank account numbers are encrypted.</p>
+    </section>
+    <?php endif ?>
     <?php if ($offer['status'] === 'sent'): ?>
     <section class="card respond" style="margin-top:14px">
         <h2><?= $isOffer ? 'Your response' : 'Acknowledge receipt' ?></h2>
