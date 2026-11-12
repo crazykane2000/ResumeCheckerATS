@@ -5,6 +5,7 @@ require_once __DIR__ . '/lib/workspace.php';
 require_once __DIR__ . '/lib/lifecycle_mailer.php';
 require_once __DIR__ . '/lib/application_match.php';
 require_once __DIR__ . '/lib/candidate_activity.php';
+require_once __DIR__ . '/lib/applications.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -142,7 +143,8 @@ try {
                 'text_url' => 'candidate_drawer_api.php?id=' . urlencode($cand['id']),
                 'notes' => $notes,
                 'activity' => $timelineEvents,
-                'journey' => $journey
+                'journey' => $journey,
+                'applications' => personApplications($pdo, (string)$cand['id'], $cand['email'] ?? null, !empty($cand['job_id']) ? (int)$cand['job_id'] : null)
             ]
         ]);
         exit;

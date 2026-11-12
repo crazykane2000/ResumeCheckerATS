@@ -498,3 +498,15 @@ textarea.control {
 .journey-next a { color: inherit; font-weight: 700; white-space: nowrap; }
 
 .journey-outcome { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+
+/* Applications by the same person (candidate detail + pipeline drawer) */
+.person-apps { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; background: var(--surface); }
+.person-app { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: var(--text); text-decoration: none; }
+.person-app:hover { background: var(--soft); }
+.person-app.self { background: var(--primary-soft); }
+.person-app strong { font-size: 12px; }
+.person-app small { display: block; font-size: 11px; color: var(--muted); }
+.person-app em { font-style: normal; font-size: 10px; font-weight: 700; color: var(--primary); margin-left: 4px; }
+.person-app em.dup { color: #8c610d; }
+.person-app i { color: var(--muted); font-size: 11px; }
+.person-note { margin: 8px 2px 0; font-size: 11px; color: var(--muted); }

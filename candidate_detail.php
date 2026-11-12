@@ -88,6 +88,8 @@ $activityTimeline=candidateActivityTimeline($pdo, $candidate, $journeyRaw);
 $noteCountStmt=$pdo->prepare('SELECT COUNT(*) FROM candidate_notes WHERE candidate_id=?');
 $noteCount=0;try{$noteCountStmt->execute([$candidate['id']]);$noteCount=(int)$noteCountStmt->fetchColumn();}catch(Throwable $e){}
 $journey=candidateJourney($candidate, $journeyRaw ?? [], $noteCount);
+require_once __DIR__.'/lib/applications.php';
+$personApps=personApplications($pdo,(string)$candidate['id'],$candidate['email']??null,!empty($candidate['job_id'])?(int)$candidate['job_id']:null);
 
 $scorePercent = $evidenceMatch['analyzed'] ? (int)$evidenceMatch['score'] : null;
 $scoreBreakdown = $evidenceMatch['breakdown'] ?? [];
@@ -707,6 +709,19 @@ require __DIR__.'/views/partials/header.php';
             </ol>
             <div class="journey-next <?=$journeyTone?>"><i class="fa-solid fa-circle-arrow-right" style="margin-top:2px"></i><span><strong>Next:</strong> <?=htmlspecialchars($journeyNext['text'])?><?php if(!empty($journeyNext['url'])):?> <a href="<?=htmlspecialchars($journeyNext['url'])?>" target="_blank" rel="noopener">Open <i class="fa-solid fa-arrow-up-right-from-square"></i></a><?php endif?></span></div>
         </section>
+        <?php if ($personApps): ?>
+        <section class="person-apps">
+            <div class="journey-head"><h3>All applications by this person</h3><small><?= count($personApps) ?> · matched by email</small></div>
+            <?php foreach ($personApps as $app): ?>
+            <a class="person-app<?= $app['is_self'] ? ' self' : '' ?>" href="candidate_detail.php?id=<?= urlencode($app['id']) ?>">
+                <span><strong><?= htmlspecialchars($app['job_title']) ?></strong><?php if ($app['is_self']): ?> <em>this application</em><?php elseif ($app['same_job']): ?> <em class="dup">same job — possible duplicate</em><?php endif ?>
+                    <small><?= htmlspecialchars($app['stage']) ?> · <?= htmlspecialchars($app['source_name']) ?> · applied <?= htmlspecialchars($app['created_at'] && strtotime($app['created_at']) ? date('d M Y', strtotime($app['created_at'])) : '—') ?></small></span>
+                <i class="fa-solid fa-chevron-right"></i>
+            </a>
+            <?php endforeach ?>
+            <?php if (array_filter($personApps, fn($a) => $a['same_job'])): ?><p class="person-note">Repeated applications to the same job can be reviewed on <a href="candidate_duplicates.php">Duplicates</a>.</p><?php endif ?>
+        </section>
+        <?php endif ?>
         <h3>
             <span><i class="fa-solid fa-clock-rotate-left" style="color:var(--primary)"></i> Application & Activity History</span>
             <small class="muted" style="font-weight:normal"><?=count($activityTimeline)?> recorded events</small>

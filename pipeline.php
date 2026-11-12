@@ -1897,6 +1897,13 @@ async function saveDrawerOutcome(event, invitationId) {
   return false;
 }
 
+// Other applications by the same person (same email), from personApplications().
+function renderApplications(apps) {
+  if (!Array.isArray(apps) || apps.length < 2) return '';
+  const rows = apps.map(a => `<a class="person-app${a.is_self ? ' self' : ''}" href="candidate_detail.php?id=${encodeURIComponent(a.id)}" target="_blank" rel="noopener"><span><strong>${esc(a.job_title)}</strong>${a.is_self ? ' <em>this application</em>' : (a.same_job ? ' <em class="dup">same job — possible duplicate</em>' : '')}<small>${esc(a.stage)} · ${esc(a.source_name)}</small></span><i class="fa-solid fa-arrow-up-right-from-square"></i></a>`).join('');
+  return `<section class="person-apps"><div class="journey-head"><h3>All applications by this person</h3><small>${apps.length} · matched by email</small></div>${rows}</section>`;
+}
+
 // Hiring journey stepper built server-side by candidateJourney() from recorded events only.
 function renderJourney(j) {
   if (!j || !Array.isArray(j.steps)) return '';
@@ -1936,6 +1943,7 @@ function renderDrawerOverview(c) {
 
   document.getElementById('paneOverview').innerHTML = `
     ${renderJourney(c.journey)}
+    ${renderApplications(c.applications)}
     ${oldFlag}
     <div class="detail-grid">
       <div class="detail-card">
