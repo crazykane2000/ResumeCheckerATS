@@ -4,6 +4,7 @@ requireAuth();
 require_once __DIR__ . '/lib/workspace.php';
 require_once __DIR__ . '/lib/branding.php';
 require_once __DIR__ . '/lib/resume_storage.php';
+require_once __DIR__ . '/lib/ctc.php';
 
 $pdo = db();
 $user = currentUser();
@@ -162,7 +163,8 @@ function extractSalaryInfo(string $text): array {
     $expectedCtc = null;
 
     // Expected CTC regex
-    if (preg_match('/(?:expected|exp\.?|target)\s*(?:ctc|salary|package|remuneration)?\s*[:\-]?\s*(?:inr|rs\.?|₹|\$|€|£)?\s*(\d+(?:\.\d+)?)\s*(lpa|lacs|lakhs|k|k\b|p\.a\.|\/year|\/yr)?/i', $text, $m)) {
+    // A salary keyword is required: "Exp 3 years" or "expected graduation 2027" must not become a CTC.
+    if (preg_match('/(?:\b(?:expected|exp\.?|target)\s*(?:ctc|salary|package|remuneration)|\be\.?\s*ctc)\b\s*[:\-]?\s*(?:inr|rs\.?|₹)?\s*(\d+(?:\.\d+)?)\s*(lpa|lacs|lakhs|k|k\b|p\.a\.|\/year|\/yr)?/i', $text, $m)) {
         $val = (float)$m[1];
         $unit = strtolower($m[2] ?? '');
         if (in_array($unit, ['lpa', 'lacs', 'lakhs', 'p.a.'], true)) {
@@ -177,7 +179,9 @@ function extractSalaryInfo(string $text): array {
     }
 
     // Current CTC regex
-    if (preg_match('/(?:current|present|c\.?)\s*(?:ctc|salary|package|remuneration)?\s*[:\-]?\s*(?:inr|rs\.?|₹|\$|€|£)?\s*(\d+(?:\.\d+)?)\s*(lpa|lacs|lakhs|k|k\b|p\.a\.|\/year|\/yr)?/i', $text, $m)) {
+    // Previously "c" with no word boundary and an optional keyword matched any "c" before a number
+    // (e.g. "Sec 2024"), storing years as CTC. Now a whole-word keyword is required.
+    if (preg_match('/(?:\b(?:current|present)\s*(?:ctc|salary|package|remuneration)|\bc\.?\s*ctc)\b\s*[:\-]?\s*(?:inr|rs\.?|₹)?\s*(\d+(?:\.\d+)?)\s*(lpa|lacs|lakhs|k|k\b|p\.a\.|\/year|\/yr)?/i', $text, $m)) {
         $val = (float)$m[1];
         $unit = strtolower($m[2] ?? '');
         if (in_array($unit, ['lpa', 'lacs', 'lakhs', 'p.a.'], true)) {
@@ -197,7 +201,11 @@ function extractSalaryInfo(string $text): array {
         }
     }
 
-    return ['current_ctc' => $currentCtc, 'expected_ctc' => $expectedCtc];
+    // Drop physically implausible values (years, phone fragments) instead of storing them as CTC.
+    return [
+        'current_ctc'  => ctcIsPlausible($currentCtc) ? $currentCtc : null,
+        'expected_ctc' => ctcIsPlausible($expectedCtc) ? $expectedCtc : null,
+    ];
 }
 
 function commandExists(string $cmd): bool {
