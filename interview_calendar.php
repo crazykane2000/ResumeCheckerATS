@@ -26,7 +26,8 @@ if($status==='confirmed')$where.=" AND ii.status='confirmed' AND ii.outcome IS N
 elseif($status==='awaiting_confirmation')$where.=" AND ii.status='awaiting_confirmation'";
 elseif($status==='completed')$where.=' AND ii.outcome IS NOT NULL';
 
-$stmt=$pdo->prepare("SELECT ii.id,ii.status,ii.recipient_email,ii.notification_status,ii.outcome,ii.outcome_notes,
+$stmt=$pdo->prepare("SELECT ii.id,ii.status,ii.recipient_email,ii.notification_status,ii.outcome,ii.outcome_notes,ii.sent_at,ii.expires_at,
+  (SELECT COUNT(*) FROM interview_slots fs WHERE fs.batch_id=ib.id AND fs.status='available' AND fs.starts_at>NOW()) open_slots,
   c.id candidate_id, c.name candidate_name, j.title job_title,
   ib.availability_start, ib.availability_end, ib.timezone,
   s.id slot_id, s.starts_at, s.ends_at
@@ -42,6 +43,18 @@ $items=$stmt->fetchAll();
 
 $confirmed=array_values(array_filter($items,fn($x)=>$x['status']==='confirmed'&&!$x['outcome']));
 $waiting=array_values(array_filter($items,fn($x)=>$x['status']==='awaiting_confirmation'));
+// Display-only follow-up state; the stored invitation status is not changed here.
+foreach($waiting as &$w){
+  $sentTs=!empty($w['sent_at'])?strtotime($w['sent_at']):false;
+  $expTs=!empty($w['expires_at'])?strtotime($w['expires_at']):false;
+  $w['days_waiting']=$sentTs?max(0,(int)floor((time()-$sentTs)/86400)):null;
+  $w['link_expired']=($expTs!==false&&$expTs<time())||(int)$w['open_slots']===0;
+  $w['days_left']=($expTs!==false&&$expTs>=time())?(int)ceil(($expTs-time())/86400):0;
+}
+unset($w);
+// Live invitations first (most urgent expiry first), expired ones after.
+usort($waiting,fn($a,$b)=>[(int)$a['link_expired'],$a['expires_at']??'']<=>[(int)$b['link_expired'],$b['expires_at']??'']);
+$waitingExpired=count(array_filter($waiting,fn($x)=>$x['link_expired']));
 $decided=array_values(array_filter($items,fn($x)=>!empty($x['outcome'])));
 
 $byDate=[];
@@ -242,7 +255,7 @@ require __DIR__.'/views/partials/header.php';
       </div>
       <div style="display:flex;justify-content:space-between;font-size:12px;padding:6px 0;border-bottom:1px solid #f3f4f6">
         <span style="color:#6b7280;font-weight:700"><i class="fa-regular fa-clock" style="color:#f59e0b"></i> Awaiting</span>
-        <strong style="color:#111827"><?=count($waiting)?></strong>
+        <strong style="color:#111827"><?=count($waiting)?><?php if($waitingExpired):?> <span style="color:#b91c1c;font-weight:700" title="Booking link expired or no slots left — re-invite needed">(<?=$waitingExpired?> expired)</span><?php endif?></strong>
       </div>
       <div style="display:flex;justify-content:space-between;font-size:12px;padding:6px 0">
         <span style="color:#6b7280;font-weight:700"><i class="fa-solid fa-circle-info" style="color:#6366f1"></i> Decided</span>
@@ -263,7 +276,7 @@ require __DIR__.'/views/partials/header.php';
     <!-- DISPOSITION TAB SWITCHER -->
     <div class="tab-bar">
       <button type="button" class="tab-btn active" id="tabConfirmedBtn" onclick="showCategory('confirmed', this)">Upcoming Confirmed (<?=count($confirmed)?>)</button>
-      <button type="button" class="tab-btn" id="tabWaitingBtn" onclick="showCategory('waiting', this)">Awaiting Reply (<?=count($waiting)?>)</button>
+      <button type="button" class="tab-btn" id="tabWaitingBtn" onclick="showCategory('waiting', this)">Awaiting Reply (<?=count($waiting)?><?=$waitingExpired?' · '.$waitingExpired.' expired':''?>)</button>
       <button type="button" class="tab-btn" id="tabDecisionBtn" onclick="showCategory('decision', this)">Decision History (<?=count($decided)?>)</button>
     </div>
 
@@ -372,11 +385,23 @@ require __DIR__.'/views/partials/header.php';
                 <?=htmlspecialchars($item['candidate_name'])?>
               </a>
             </strong>
+            <?php if($item['link_expired']):?>
+            <span class="badge" style="background:#fee2e2;color:#b91c1c" title="Booking link expired or no open slots left. A reminder cannot be booked; send a new invitation with a new window.">Expired · re-invite needed</span>
+            <?php else:?>
             <span class="badge" style="background:#fef3c7;color:#b45309">Awaiting Reply</span>
+            <?php endif?>
           </div>
           <small style="color:#6b7280;display:block;margin-top:4px"><?=htmlspecialchars($item['job_title'])?> · <?=htmlspecialchars($item['recipient_email'])?></small>
           <small style="color:#b45309;font-weight:700;display:block;margin-top:4px">
             Window <?=htmlspecialchars(date('d M',strtotime($item['availability_start'])))?> – <?=htmlspecialchars(date('d M Y',strtotime($item['availability_end'])))?>
+          </small>
+          <small style="display:block;margin-top:4px;color:<?=$item['link_expired']?'#b91c1c':'#4b5563'?>">
+            <?php if($item['days_waiting']!==null):?>Invited <?=$item['days_waiting']===0?'today':$item['days_waiting'].' day'.($item['days_waiting']===1?'':'s').' ago'?> · <?php endif?>
+            <?php if($item['link_expired']):?>
+              Link expired <?=!empty($item['expires_at'])?htmlspecialchars(date('d M Y',strtotime($item['expires_at']))):''?><?=(int)$item['open_slots']===0?' · no open slots left':''?>
+            <?php else:?>
+              Link valid <?=$item['days_left']<=1?'until today':'for '.$item['days_left'].' more days'?> · <?=(int)$item['open_slots']?> open slot<?=(int)$item['open_slots']===1?'':'s'?>
+            <?php endif?>
           </small>
           <div style="margin-top:10px">
             <button type="button" class="btn btn-primary" onclick='openResendPopupModal(<?=json_encode($resendData, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>)' style="font-size:11px;padding:6px 12px;border-radius:6px;background:#6366f1;color:#fff;border:0;cursor:pointer;font-weight:700">
