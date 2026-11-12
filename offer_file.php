@@ -49,7 +49,8 @@ if ($format === 'docx' || $format === 'policies') {
         http_response_code(404);
         exit('No policies were shared with this letter.');
     }
-    $docx = buildLetterDocx($isPolicies ? $policiesHtml : $letterHtml, $brand, $isPolicies ? 'Company policies' : (OFFER_LETTER_TYPES[$offer['letter_type']] ?? 'Letter'));
+    $docLabel = $isPolicies ? 'Company policies' : (OFFER_LETTER_TYPES[$offer['letter_type']] ?? 'Letter');
+    $docx = buildLetterDocx($isPolicies ? $policiesHtml : $letterHtml, $brand, $docLabel, ['label' => $docLabel, 'ref' => letterReference($offer, $brand)]);
     $filename = $isPolicies ? 'Company-Policies-' . (trim(preg_replace('/[^A-Za-z0-9]+/', '-', (string)$brand['name']), '-') ?: 'Company') . '.docx' : letterFileName($offer, $candidateName, 'docx');
     header('Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -67,13 +68,13 @@ $withPolicies = !empty($_GET['policies']) && $policiesHtml !== '';
 <style>
 body{margin:0;background:#f6f7fb;padding:24px 12px;font-family:Inter,Arial,sans-serif}
 <?= letterPaperCss() ?>
-.print-bar{max-width:780px;margin:0 auto 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:#4b5060}
+.print-bar{max-width:800px;margin:0 auto 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:#4b5060}
 .print-bar button{background:#6f45ff;color:#fff;border:0;border-radius:8px;padding:9px 14px;font-weight:600;cursor:pointer}
 .page-break{page-break-before:always;break-before:page;height:0}
 </style></head>
 <body>
 <div class="print-bar no-print"><span>Use <strong>Save as PDF</strong> as the printer to download a PDF.</span><button type="button" onclick="window.print()">Print / Save as PDF</button></div>
-<?= letterPaperHtml($letterHtml, $brand) ?>
-<?php if ($withPolicies): ?><div class="page-break"></div><div style="height:16px" class="no-print"></div><?= letterPaperHtml($policiesHtml, $brand) ?><?php endif ?>
+<?= letterPaperHtml($letterHtml, $brand, ['label' => OFFER_LETTER_TYPES[$offer['letter_type']] ?? 'Letter', 'ref' => letterReference($offer, $brand)]) ?>
+<?php if ($withPolicies): ?><div class="page-break"></div><div style="height:16px" class="no-print"></div><?= letterPaperHtml($policiesHtml, $brand, ['label' => 'Company policies', 'ref' => letterReference($offer, $brand)]) ?><?php endif ?>
 <script>window.addEventListener('load', () => setTimeout(() => window.print(), 300));</script>
 </body></html>

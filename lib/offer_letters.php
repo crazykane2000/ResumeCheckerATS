@@ -11,6 +11,8 @@
 // - Nothing here hires, rejects or emails on its own; every send/hire is a recruiter action.
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/branding.php';
+require_once __DIR__ . '/integrations.php';
+require_once __DIR__ . '/ctc.php';
 
 const OFFER_LETTER_TYPES = ['offer_letter' => 'Offer letter', 'hiring_letter' => 'Hiring / appointment letter'];
 
@@ -25,6 +27,7 @@ function offerPlaceholders(): array
         'location' => 'Work location',
         'reporting_to' => 'Reporting manager',
         'respond_by' => 'Last date to accept',
+        'ctc_converted' => 'CTC in USD and AED (indicative, uses the saved exchange rates)',
         'offer_date' => 'Date the letter is issued',
         'signatory_name' => 'Signing person',
         'signatory_title' => 'Signing person title',
@@ -43,7 +46,7 @@ function defaultDocumentTemplates(): array
 <h3>Key terms</h3>
 <table>
 <tr><th>Designation</th><td>{{designation}}</td></tr>
-<tr><th>Annual CTC</th><td>{{ctc}}</td></tr>
+<tr><th>Annual CTC</th><td>{{ctc}}<br><em>{{ctc_converted}}</em></td></tr>
 <tr><th>Date of joining</th><td>{{joining_date}}</td></tr>
 <tr><th>Work location</th><td>{{location}}</td></tr>
 <tr><th>Reporting to</th><td>{{reporting_to}}</td></tr>
@@ -149,9 +152,25 @@ function documentTemplates(PDO $pdo, ?string $type = null, bool $activeOnly = tr
  * to candidates and emailed). Unknown elements are unwrapped (text kept); every
  * attribute is dropped except safe href on links and colspan/rowspan on cells.
  */
+/**
+ * Repair text that went through a Windows-1252 code page (e.g. pasted from Word or a
+ * Windows console): invalid UTF-8 is re-decoded as Windows-1252, and invisible C1 control
+ * characters U+0080–U+009F are mapped to the punctuation they stand for (— – “ ” ‘ ’ … € ™).
+ */
+function repairLetterEncoding(string $text): string
+{
+    if ($text === '') return '';
+    if (!mb_check_encoding($text, 'UTF-8')) $text = mb_convert_encoding($text, 'UTF-8', 'Windows-1252');
+    return (string)preg_replace_callback('/[\x{80}-\x{9F}]/u', static function ($m) {
+        $byte = chr(mb_ord($m[0], 'UTF-8'));
+        $fixed = @mb_convert_encoding($byte, 'UTF-8', 'Windows-1252');
+        return ($fixed !== false && $fixed !== '?' && mb_ord($fixed, 'UTF-8') > 0x9F) ? $fixed : '';
+    }, $text);
+}
+
 function sanitizeLetterHtml(string $html): string
 {
-    $html = trim($html);
+    $html = repairLetterEncoding(trim($html));
     if ($html === '') return '';
     $allowed = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'h2', 'h3', 'h4', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'a', 'blockquote', 'span', 'div'];
     $doc = new DOMDocument('1.0', 'UTF-8');
@@ -205,14 +224,77 @@ function sanitizeLetterHtml(string $html): string
     return trim($out);
 }
 
+/** Placeholders that render as nothing (instead of "—") when no value is available. */
+const OPTIONAL_PLACEHOLDERS = ['ctc_converted'];
+
 /** Replace {{placeholders}} with HTML-escaped values. Unknown placeholders are left visible for review. */
 function renderLetterTemplate(string $html, array $vars): string
 {
     return preg_replace_callback('/\{\{\s*([a-z_]+)\s*\}\}/', static function ($m) use ($vars) {
         if (!array_key_exists($m[1], $vars)) return $m[0];
         $v = trim((string)$vars[$m[1]]);
-        return $v === '' ? '—' : htmlspecialchars($v, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if ($v === '') return in_array($m[1], OPTIONAL_PLACEHOLDERS, true) ? '' : '—';
+        return htmlspecialchars($v, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     }, $html);
+}
+
+// ---------------------------------------------------------------------------
+// Indicative currency conversion of the CTC (USD / AED).
+// Rates are saved by a recruiter on documents.php (manually or fetched on demand)
+// and every converted figure states the rate and date it used.
+// ---------------------------------------------------------------------------
+
+/** @return array{inr_per_usd: ?float, inr_per_aed: ?float, as_of: ?string, source: string} */
+function fxRates(): array
+{
+    $c = [];
+    try { $c = integrationConfig('fx_rates'); } catch (Throwable $e) {}
+    $usd = isset($c['inr_per_usd']) ? (float)$c['inr_per_usd'] : 0.0;
+    $aed = isset($c['inr_per_aed']) ? (float)$c['inr_per_aed'] : 0.0;
+    return [
+        'inr_per_usd' => $usd > 0 ? $usd : null,
+        'inr_per_aed' => $aed > 0 ? $aed : null,
+        'as_of' => !empty($c['as_of']) ? (string)$c['as_of'] : null,
+        'source' => (string)($c['source'] ?? ''),
+    ];
+}
+
+/** Latest USD-based rates from open.er-api.com (no key). Throws on any failure. */
+function fetchLatestFxRates(): array
+{
+    if (!function_exists('curl_init')) throw new RuntimeException('PHP cURL is not available.');
+    $ch = curl_init('https://open.er-api.com/v6/latest/USD');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 12, CURLOPT_CONNECTTIMEOUT => 6, CURLOPT_FOLLOWLOCATION => false, CURLOPT_HTTPHEADER => ['Accept: application/json']]);
+    $body = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    $j = is_string($body) ? json_decode($body, true) : null;
+    $inr = (float)($j['rates']['INR'] ?? 0);
+    $aedPerUsd = (float)($j['rates']['AED'] ?? 0);
+    if ($status !== 200 || ($j['result'] ?? '') !== 'success' || $inr < 20 || $inr > 500 || $aedPerUsd < 1 || $aedPerUsd > 10) {
+        throw new RuntimeException('Could not fetch exchange rates right now. Enter them manually.');
+    }
+    $asOf = !empty($j['time_last_update_unix']) ? date('Y-m-d', (int)$j['time_last_update_unix']) : date('Y-m-d');
+    return ['inr_per_usd' => round($inr, 4), 'inr_per_aed' => round($inr / $aedPerUsd, 4), 'as_of' => $asOf, 'source' => 'open.er-api.com'];
+}
+
+/** Annual CTC in rupees parsed from free text ("₹12,00,000 per annum", "12 LPA"), or null. */
+function ctcRupees(?string $ctcText): ?float
+{
+    $parsed = normalizeCtcLpa($ctcText, 'India');
+    return $parsed['status'] === 'stated' && $parsed['lpa'] !== null ? $parsed['lpa'] * 100000 : null;
+}
+
+/** e.g. "≈ USD 12,800 · AED 46,900 per annum (indicative: 1 USD = ₹93.85, 1 AED = ₹25.55 as of 12 Nov 2026)". */
+function ctcConversionText(?string $ctcText, ?array $fx = null): string
+{
+    $fx ??= fxRates();
+    $inr = ctcRupees($ctcText);
+    if ($inr === null || !$fx['inr_per_usd'] || !$fx['inr_per_aed']) return '';
+    $round = static fn(float $v): string => number_format(round($v / 100) * 100);
+    $rate = static fn(float $v): string => rtrim(rtrim(number_format($v, 2), '0'), '.');
+    $date = $fx['as_of'] && strtotime($fx['as_of']) ? ' as of ' . date('d M Y', strtotime($fx['as_of'])) : '';
+    return '≈ USD ' . $round($inr / $fx['inr_per_usd']) . ' · AED ' . $round($inr / $fx['inr_per_aed']) . ' per annum (indicative: 1 USD = ₹' . $rate($fx['inr_per_usd']) . ', 1 AED = ₹' . $rate($fx['inr_per_aed']) . $date . ')';
 }
 
 function offerLetterVars(array $offer, array $candidate, array $brand): array
@@ -223,6 +305,7 @@ function offerLetterVars(array $offer, array $candidate, array $brand): array
         'designation' => (string)($offer['designation'] ?? ''),
         'company_name' => (string)($brand['name'] ?? ''),
         'ctc' => (string)($offer['ctc_text'] ?? ''),
+        'ctc_converted' => ctcConversionText($offer['ctc_text'] ?? null),
         'joining_date' => $date($offer['joining_date'] ?? null),
         'location' => (string)($offer['location'] ?? ''),
         'reporting_to' => (string)($offer['reporting_to'] ?? ''),
@@ -326,30 +409,69 @@ function brandLogoDataUri(array $brand): ?string
 function letterPaperCss(): string
 {
     return <<<'CSS'
-.letter-paper{background:#fff;color:#1f2330;max-width:780px;margin:0 auto;padding:48px 56px;border:1px solid #ececf3;border-radius:10px;font:14px/1.65 Inter,Arial,sans-serif}
-.letter-head{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #6f45ff;padding-bottom:14px;margin-bottom:26px}
-.letter-head img{max-height:46px;max-width:180px;object-fit:contain}
-.letter-head .org{text-align:right}.letter-head .org strong{display:block;font-size:16px;color:#171820}.letter-head .org small{color:#7b8090;font-size:12px}
-.letter-body h2{font-size:18px;margin:20px 0 10px;color:#171820}.letter-body h3{font-size:14px;margin:18px 0 6px;color:#3a2a8c}
-.letter-body p{margin:0 0 10px}.letter-body ul,.letter-body ol{margin:0 0 10px 20px;padding:0}
-.letter-body table{border-collapse:collapse;width:100%;margin:6px 0 14px}.letter-body th,.letter-body td{border:1px solid #e3e3ee;padding:8px 10px;text-align:left;vertical-align:top}
-.letter-body th{background:#f6f4ff;width:34%;font-weight:600}
-.letter-foot{margin-top:30px;border-top:1px solid #ececf3;padding-top:10px;color:#7b8090;font-size:11px;text-align:center}
-@media print{body{background:#fff!important}.no-print{display:none!important}.letter-paper{border:0;border-radius:0;padding:0;max-width:none}@page{margin:18mm}}
-@media (max-width:640px){.letter-paper{padding:24px 18px}}
+.letter-paper{position:relative;background:#fff;color:#2a2d3a;max-width:800px;margin:0 auto;padding:0;border:1px solid #ebe8f7;border-radius:12px;box-shadow:0 24px 60px rgba(40,30,90,.08);font:13.5px/1.75 Inter,"Segoe UI",Arial,sans-serif;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.letter-accent{height:6px;background:linear-gradient(90deg,#6f45ff 0%,#8f6bff 55%,#2ec4a0 100%)}
+.letter-inner{padding:40px 56px 30px}
+.letter-head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;padding-bottom:22px;margin-bottom:28px;border-bottom:1px solid #ecebf3}
+.letter-brand{display:flex;align-items:center;gap:14px;min-width:0}
+.letter-brand img{height:52px;width:auto;max-width:150px;object-fit:contain}
+.letter-brand strong{display:block;font-size:19px;letter-spacing:-.01em;color:#16151f;line-height:1.2}
+.letter-brand small{display:block;color:#8a8ea0;font-size:12px;margin-top:2px}
+.letter-doc{text-align:right;white-space:nowrap}
+.letter-doc span{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6f45ff;background:#f3f0ff;border:1px solid #e4dcff;border-radius:6px;padding:5px 9px}
+.letter-doc small{display:block;margin-top:8px;color:#8a8ea0;font-size:11px;letter-spacing:.02em}
+.letter-body>p:first-child{color:#8a8ea0;font-size:12.5px;margin-bottom:14px}
+.letter-body h2{font-size:23px;line-height:1.3;letter-spacing:-.015em;margin:22px 0 18px;color:#16151f;font-weight:700}
+.letter-body h2::after{content:"";display:block;width:44px;height:3px;border-radius:3px;margin-top:12px;background:linear-gradient(90deg,#6f45ff,#2ec4a0)}
+.letter-body h3{font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin:26px 0 10px;color:#6f45ff;font-weight:700}
+.letter-body h4{font-size:13.5px;margin:18px 0 6px;color:#16151f}
+.letter-body p{margin:0 0 12px}.letter-body strong{color:#16151f;font-weight:600}
+.letter-body ul,.letter-body ol{margin:0 0 14px 4px;padding-left:18px}.letter-body li{margin:0 0 6px;padding-left:4px}.letter-body li::marker{color:#6f45ff}
+.letter-body a{color:#5b34ef}
+.letter-body table{width:100%;border-collapse:separate;border-spacing:0;margin:4px 0 20px;border:1px solid #e8e4fa;border-radius:10px;overflow:hidden}
+.letter-body th,.letter-body td{padding:11px 16px;text-align:left;vertical-align:top;border-bottom:1px solid #f0edfa}
+.letter-body tr:last-child th,.letter-body tr:last-child td{border-bottom:0}
+.letter-body th{width:36%;background:#faf9ff;color:#6b6f82;font-weight:500;font-size:12.5px}
+.letter-body td{color:#16151f;font-weight:600}.letter-body td em{display:block;margin-top:3px;font-style:normal;font-weight:400;font-size:11.5px;color:#8a8ea0}.letter-body td br:has(+em){display:none}
+.letter-body hr{border:0;border-top:1px solid #ecebf3;margin:20px 0}
+.letter-body>p:last-child{margin-top:28px;padding-top:12px;border-top:1px solid #d9d6e8;min-width:240px;display:inline-block}
+.letter-body blockquote{margin:0 0 14px;padding:10px 14px;border-left:3px solid #6f45ff;background:#faf9ff;border-radius:0 8px 8px 0}
+.letter-foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 56px;padding:14px 0 22px;border-top:1px solid #ecebf3;color:#9a9db0;font-size:10.5px;letter-spacing:.04em}
+.letter-foot b{color:#6f45ff;font-weight:700;text-transform:uppercase;letter-spacing:.12em}
+@media print{body{background:#fff!important;padding:0!important}.no-print{display:none!important}.letter-paper{border:0;border-radius:0;box-shadow:none;max-width:none}.letter-inner{padding:26px 6px 18px}.letter-foot{margin:0 6px}@page{size:A4;margin:12mm 14mm}}
+@media (max-width:640px){.letter-inner{padding:26px 20px 20px}.letter-foot{margin:0 20px}.letter-head{flex-direction:column}.letter-doc{text-align:left}.letter-body h2{font-size:20px}}
 CSS;
 }
 
-/** The letter as a branded block (header with logo, rendered body, footer). */
-function letterPaperHtml(string $bodyHtml, array $brand): string
+/** Reference number shown on letters, e.g. NON/OL/2026/0001. */
+function letterReference(array $offer, array $brand): string
 {
-    $name = htmlspecialchars((string)($brand['name'] ?? ''), ENT_QUOTES, 'UTF-8');
-    $domain = htmlspecialchars((string)($brand['domain'] ?? ''), ENT_QUOTES, 'UTF-8');
+    $prefix = strtoupper(substr(preg_replace('/[^A-Za-z]/', '', (string)($brand['name'] ?? '')), 0, 3)) ?: 'REF';
+    $type = ($offer['letter_type'] ?? 'offer_letter') === 'hiring_letter' ? 'AL' : 'OL';
+    $year = !empty($offer['created_at']) && strtotime($offer['created_at']) ? date('Y', strtotime($offer['created_at'])) : date('Y');
+    return $prefix . '/' . $type . '/' . $year . '/' . str_pad((string)(int)($offer['id'] ?? 0), 4, '0', STR_PAD_LEFT);
+}
+
+/**
+ * The letter as a branded sheet: accent bar, letterhead (logo, organisation, document
+ * label and reference), rendered body and a confidentiality footer.
+ *
+ * @param array{label?:string, ref?:string} $meta
+ */
+function letterPaperHtml(string $bodyHtml, array $brand, array $meta = []): string
+{
+    $e = static fn($v): string => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+    $name = $e($brand['name'] ?? '');
+    $domain = $e($brand['domain'] ?? '');
     $logo = brandLogoDataUri($brand);
-    $logoHtml = $logo ? '<img src="' . $logo . '" alt="' . $name . ' logo">' : '<span></span>';
-    return '<article class="letter-paper"><header class="letter-head">' . $logoHtml . '<div class="org"><strong>' . $name . '</strong>' . ($domain ? '<small>' . $domain . '</small>' : '') . '</div></header>'
-        . '<div class="letter-body">' . $bodyHtml . '</div>'
-        . '<footer class="letter-foot">' . $name . ($domain ? ' · ' . $domain : '') . '</footer></article>';
+    $label = $e($meta['label'] ?? 'Letter');
+    $ref = trim((string)($meta['ref'] ?? ''));
+    return '<article class="letter-paper"><div class="letter-accent"></div><div class="letter-inner">'
+        . '<header class="letter-head"><div class="letter-brand">' . ($logo ? '<img src="' . $logo . '" alt="' . $name . ' logo">' : '')
+        . '<div><strong>' . $name . '</strong>' . ($domain ? '<small>' . $domain . '</small>' : '') . '</div></div>'
+        . '<div class="letter-doc"><span>' . $label . '</span>' . ($ref !== '' ? '<small>Ref. ' . $e($ref) . '</small>' : '') . '</div></header>'
+        . '<div class="letter-body">' . $bodyHtml . '</div></div>'
+        . '<footer class="letter-foot"><span><b>Private &amp; Confidential</b></span><span>' . $name . ($domain ? ' · ' . $domain : '') . '</span></footer></article>';
 }
 
 /** Branded email that links to the offer portal (the mail transports do not support attachments). */
@@ -404,6 +526,7 @@ function docxTextRun(string $text, array $fmt = []): string
     if (!empty($fmt['u'])) $rPr .= '<w:u w:val="single"/>';
     if (!empty($fmt['size'])) $rPr .= '<w:sz w:val="' . (int)$fmt['size'] . '"/>';
     if (!empty($fmt['color'])) $rPr .= '<w:color w:val="' . $fmt['color'] . '"/>';
+    if (!empty($fmt['caps'])) $rPr .= '<w:caps/><w:spacing w:val="24"/>';
     return '<w:r>' . ($rPr ? '<w:rPr>' . $rPr . '</w:rPr>' : '') . '<w:t xml:space="preserve">' . docxEscape($text) . '</w:t></w:r>';
 }
 
@@ -418,7 +541,10 @@ function docxRuns(DOMNode $node, array $fmt = []): string
             if ($tag === 'br') { $xml .= '<w:r><w:br/></w:r>'; continue; }
             $f = $fmt;
             if (in_array($tag, ['strong', 'b', 'th'], true)) $f['b'] = true;
-            if (in_array($tag, ['em', 'i'], true)) $f['i'] = true;
+            if (in_array($tag, ['em', 'i'], true)) {
+                if (!empty($fmt['in_cell'])) $f = ['size' => 18, 'color' => '8A8EA0', 'in_cell' => true];
+                else $f['i'] = true;
+            }
             if ($tag === 'u') $f['u'] = true;
             $xml .= docxRuns($child, $f);
         }
@@ -451,8 +577,15 @@ function docxBlocks(DOMNode $node): string
             case 'h3':
             case 'h4':
                 $flush();
-                $size = ['h2' => 30, 'h3' => 25, 'h4' => 23][$tag];
-                $xml .= docxParagraph(docxRuns($child, ['b' => true, 'size' => $size, 'color' => $tag === 'h2' ? '171820' : '3A2A8C']), '<w:keepNext/><w:spacing w:before="200" w:after="100"/>');
+                if ($tag === 'h2') {
+                    // Title with a short gradient-like accent rule underneath (as in the web letter).
+                    $xml .= docxParagraph(docxRuns($child, ['b' => true, 'size' => 36, 'color' => '16151F']), '<w:keepNext/><w:spacing w:before="240" w:after="60"/>');
+                    $xml .= docxParagraph('<w:r><w:rPr><w:color w:val="6F45FF"/><w:sz w:val="16"/></w:rPr><w:t>▬▬▬</w:t></w:r>', '<w:keepNext/><w:spacing w:after="200"/>');
+                } elseif ($tag === 'h3') {
+                    $xml .= docxParagraph(docxRuns($child, ['b' => true, 'size' => 18, 'color' => '6F45FF', 'caps' => true]), '<w:keepNext/><w:spacing w:before="280" w:after="100"/>');
+                } else {
+                    $xml .= docxParagraph(docxRuns($child, ['b' => true, 'size' => 23, 'color' => '16151F']), '<w:keepNext/><w:spacing w:before="200" w:after="80"/>');
+                }
                 break;
             case 'p':
             case 'blockquote':
@@ -473,19 +606,26 @@ function docxBlocks(DOMNode $node): string
             case 'table':
                 $flush();
                 $rows = '';
+                // Fixed layout sized to the A4 text width (9638 twips) so the table never overflows the margin.
+                $textWidth = 9638;
                 foreach ($child->getElementsByTagName('tr') as $tr) {
                     $cells = '';
+                    $rowCells = array_values(array_filter(iterator_to_array($tr->childNodes), fn($n) => $n instanceof DOMElement && in_array(strtolower($n->tagName), ['td', 'th'], true)));
+                    $labelRow = count($rowCells) === 2 && strtolower($rowCells[0]->tagName) === 'th';
                     foreach ($tr->childNodes as $cell) {
                         if (!$cell instanceof DOMElement || !in_array(strtolower($cell->tagName), ['td', 'th'], true)) continue;
                         $isTh = strtolower($cell->tagName) === 'th';
-                        $shade = $isTh ? '<w:shd w:val="clear" w:color="auto" w:fill="F6F4FF"/>' : '';
-                        $cells .= '<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/>' . $shade . '</w:tcPr>' . docxParagraph(docxRuns($cell, $isTh ? ['b' => true] : [])) . '</w:tc>';
+                        $shade = $isTh ? '<w:shd w:val="clear" w:color="auto" w:fill="FAF9FF"/>' : '';
+                        $cellWidth = $labelRow ? ($isTh ? 3470 : $textWidth - 3470) : intdiv($textWidth, max(1, count($rowCells)));
+                        $width = '<w:tcW w:w="' . $cellWidth . '" w:type="dxa"/>';
+                        $cells .= '<w:tc><w:tcPr>' . $width . $shade . '<w:vAlign w:val="center"/></w:tcPr>' . docxParagraph(docxRuns($cell, $isTh ? ['color' => '6B6F82', 'size' => 20, 'in_cell' => true] : ['b' => true, 'color' => '16151F', 'in_cell' => true]), '<w:spacing w:before="40" w:after="40"/>') . '</w:tc>';
                     }
                     if ($cells !== '') $rows .= '<w:tr>' . $cells . '</w:tr>';
                 }
                 if ($rows !== '') {
-                    $border = 'w:val="single" w:sz="4" w:space="0" w:color="E3E3EE"';
-                    $xml .= '<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:top ' . $border . '/><w:left ' . $border . '/><w:bottom ' . $border . '/><w:right ' . $border . '/><w:insideH ' . $border . '/><w:insideV ' . $border . '/></w:tblBorders><w:tblCellMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tblCellMar></w:tblPr>' . $rows . '</w:tbl>';
+                    $border = 'w:val="single" w:sz="4" w:space="0" w:color="E8E4FA"';
+                    $inner = 'w:val="single" w:sz="4" w:space="0" w:color="F0EDFA"';
+                    $xml .= '<w:tbl><w:tblPr><w:tblW w:w="' . $textWidth . '" w:type="dxa"/><w:tblInd w:w="200" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders><w:top ' . $border . '/><w:left ' . $border . '/><w:bottom ' . $border . '/><w:right ' . $border . '/><w:insideH ' . $inner . '/><w:insideV w:val="nil"/></w:tblBorders><w:tblCellMar><w:top w:w="110" w:type="dxa"/><w:left w:w="200" w:type="dxa"/><w:bottom w:w="110" w:type="dxa"/><w:right w:w="200" w:type="dxa"/></w:tblCellMar></w:tblPr>' . $rows . '</w:tbl>';
                     $xml .= docxParagraph('');
                 }
                 break;
@@ -505,8 +645,14 @@ function docxBlocks(DOMNode $node): string
     return $xml;
 }
 
-/** Build a .docx (binary string) for the letter: logo + organisation header, then the body. */
-function buildLetterDocx(string $bodyHtml, array $brand, string $title): string
+/**
+ * Build a .docx (binary string) matching the web letter: accent rule, two-column
+ * letterhead (logo + organisation | document label + reference), body, and a
+ * "Private & Confidential" footer on every page.
+ *
+ * @param array{label?:string, ref?:string} $meta
+ */
+function buildLetterDocx(string $bodyHtml, array $brand, string $title, array $meta = []): string
 {
     $doc = new DOMDocument('1.0', 'UTF-8');
     $prev = libxml_use_internal_errors(true);
@@ -516,7 +662,7 @@ function buildLetterDocx(string $bodyHtml, array $brand, string $title): string
     $root = $doc->getElementById('__root') ?? $doc;
 
     $logo = brandLogoForLetters($brand);
-    $headerXml = '';
+    $logoXml = '';
     $rels = '';
     $media = null;
     if ($logo) {
@@ -525,34 +671,54 @@ function buildLetterDocx(string $bodyHtml, array $brand, string $title): string
         $widthEmu = (int)min(2.2 * 914400, $heightEmu * ($logo['width'] / max(1, $logo['height'])));
         $media = ['name' => 'logo.' . $ext, 'data' => $logo['data'], 'ext' => $ext];
         $rels = '<Relationship Id="rIdLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/' . $media['name'] . '"/>';
-        $headerXml .= '<w:p><w:pPr><w:spacing w:after="80"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' . $widthEmu . '" cy="' . $heightEmu . '"/><wp:docPr id="1" name="Logo"/>'
+        $logoXml = '<w:p><w:pPr><w:spacing w:after="0"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' . $widthEmu . '" cy="' . $heightEmu . '"/><wp:docPr id="1" name="Logo"/>'
             . '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
             . '<pic:nvPicPr><pic:cNvPr id="0" name="' . $media['name'] . '"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdLogo"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
             . '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' . $widthEmu . '" cy="' . $heightEmu . '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>';
     }
     $org = trim((string)($brand['name'] ?? ''));
     $domain = trim((string)($brand['domain'] ?? ''));
-    $headerXml .= docxParagraph('<w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t xml:space="preserve">' . docxEscape($org) . '</w:t></w:r>' . ($domain ? '<w:r><w:rPr><w:color w:val="7B8090"/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">  ·  ' . docxEscape($domain) . '</w:t></w:r>' : ''),
-        '<w:pBdr><w:bottom w:val="single" w:sz="12" w:space="6" w:color="6F45FF"/></w:pBdr><w:spacing w:after="300"/>');
+    $label = trim((string)($meta['label'] ?? $title));
+    $ref = trim((string)($meta['ref'] ?? ''));
+    $noBorders = '<w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders>';
+    $orgXml = docxParagraph('<w:r><w:rPr><w:b/><w:sz w:val="32"/><w:color w:val="16151F"/></w:rPr><w:t xml:space="preserve">' . docxEscape($org) . '</w:t></w:r>', '<w:spacing w:before="60" w:after="0"/>')
+        . ($domain ? docxParagraph('<w:r><w:rPr><w:sz w:val="18"/><w:color w:val="8A8EA0"/></w:rPr><w:t xml:space="preserve">' . docxEscape($domain) . '</w:t></w:r>', '<w:spacing w:after="0"/>') : '');
+    $docXml = docxParagraph('<w:r><w:rPr><w:b/><w:caps/><w:spacing w:val="30"/><w:sz w:val="16"/><w:color w:val="6F45FF"/></w:rPr><w:t xml:space="preserve">' . docxEscape($label) . '</w:t></w:r>', '<w:jc w:val="right"/><w:spacing w:before="80" w:after="40"/>')
+        . ($ref !== '' ? docxParagraph('<w:r><w:rPr><w:sz w:val="17"/><w:color w:val="8A8EA0"/></w:rPr><w:t xml:space="preserve">Ref. ' . docxEscape($ref) . '</w:t></w:r>', '<w:jc w:val="right"/><w:spacing w:after="0"/>') : '');
+    $leftCell = $logo
+        ? '<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/>' . $noBorders . '<w:tblCellMar><w:left w:w="0" w:type="dxa"/><w:right w:w="160" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tr><w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/><w:vAlign w:val="center"/></w:tcPr>' . $logoXml . '</w:tc><w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/><w:vAlign w:val="center"/></w:tcPr>' . $orgXml . '</w:tc></w:tr></w:tbl>' . docxParagraph('', '<w:spacing w:after="0"/><w:rPr><w:sz w:val="2"/></w:rPr>')
+        : $orgXml;
+    // Accent rule, then the letterhead table, then a hairline divider.
+    $headerXml = docxParagraph('', '<w:pBdr><w:top w:val="single" w:sz="36" w:space="1" w:color="6F45FF"/></w:pBdr><w:spacing w:after="160"/>')
+        . '<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/>' . $noBorders . '<w:tblCellMar><w:left w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar></w:tblPr>'
+        . '<w:tr><w:tc><w:tcPr><w:tcW w:w="3200" w:type="pct"/><w:vAlign w:val="center"/></w:tcPr>' . $leftCell . '</w:tc>'
+        . '<w:tc><w:tcPr><w:tcW w:w="1800" w:type="pct"/><w:vAlign w:val="top"/></w:tcPr>' . $docXml . '</w:tc></w:tr></w:tbl>'
+        . docxParagraph('', '<w:pBdr><w:bottom w:val="single" w:sz="4" w:space="8" w:color="ECEBF3"/></w:pBdr><w:spacing w:after="320"/>');
+    $footerXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        . '<w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="4" w:space="8" w:color="ECEBF3"/></w:pBdr><w:tabs><w:tab w:val="right" w:pos="9638"/></w:tabs></w:pPr>'
+        . '<w:r><w:rPr><w:b/><w:caps/><w:spacing w:val="24"/><w:sz w:val="15"/><w:color w:val="6F45FF"/></w:rPr><w:t>Private &amp; Confidential</w:t></w:r>'
+        . '<w:r><w:rPr><w:sz w:val="15"/><w:color w:val="9A9DB0"/></w:rPr><w:tab/><w:t xml:space="preserve">' . docxEscape($org . ($domain ? ' · ' . $domain : '')) . '</w:t></w:r></w:p></w:ftr>';
 
     $body = docxBlocks($root);
     $documentXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         . '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">'
         . '<w:body>' . $headerXml . $body
-        . '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr>'
+        . '<w:sectPr><w:footerReference w:type="default" r:id="rIdFooter"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr>'
         . '</w:body></w:document>';
     $stylesXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="22"/><w:color w:val="1F2330"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:line="276" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults></w:styles>';
     $contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
         . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'
         . ($media ? '<Default Extension="' . $media['ext'] . '" ContentType="image/' . $media['ext'] . '"/>' : '')
         . '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        . '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>'
         . '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
         . '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>';
     $rootRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
         . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
         . '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>';
     $docRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        . '<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' . $rels . '</Relationships>';
+        . '<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+        . '<Relationship Id="rIdFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>' . $rels . '</Relationships>';
     $core = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
         . '<dc:title>' . docxEscape($title) . '</dc:title><dc:creator>' . docxEscape($org) . '</dc:creator>'
         . '<dcterms:created xsi:type="dcterms:W3CDTF">' . gmdate('Y-m-d\TH:i:s\Z') . '</dcterms:created></cp:coreProperties>';
@@ -562,6 +728,7 @@ function buildLetterDocx(string $bodyHtml, array $brand, string $title): string
         '_rels/.rels' => $rootRels,
         'word/document.xml' => $documentXml,
         'word/styles.xml' => $stylesXml,
+        'word/footer1.xml' => $footerXml,
         'word/_rels/document.xml.rels' => $docRels,
         'docProps/core.xml' => $core,
     ];

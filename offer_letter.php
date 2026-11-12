@@ -210,7 +210,7 @@ $pageStyles = '<style>' . letterPaperCss() . '
 .ol-policies{display:grid;gap:4px;margin-top:4px}.ol-policies label{display:flex;gap:6px;align-items:center;margin:0;font-weight:500;color:var(--text);font-size:12px}
 .ol-editor{padding:16px}.rte-toolbar{display:flex;flex-wrap:wrap;gap:4px;padding:6px;border:1px solid var(--line);border-bottom:0;border-radius:8px 8px 0 0;background:var(--soft)}
 .rte-toolbar button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer}
-.rte-wrap .letter-paper{border-radius:0 0 8px 8px;padding:30px 34px;max-width:none}.rte-wrap .letter-body{outline:none;min-height:380px}
+.rte-wrap .letter-paper{border-radius:0 0 8px 8px;max-width:none;box-shadow:none}.rte-wrap .letter-inner{padding:28px 32px 22px}.rte-wrap .letter-foot{margin:0 32px}.rte-wrap .letter-body{outline:none;min-height:380px}
 .ol-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;align-items:center}
 .btn-ghost{background:#fff;border:1px solid var(--line);color:var(--text)}
 .ol-flash{padding:10px 12px;border-radius:8px;font-size:12px;margin-top:10px}.ol-flash.ok{background:var(--green-soft);color:#0f7a52}.ol-flash.err{background:#fff0f2;color:#b4233c}.ol-flash.warn{background:var(--amber-soft);color:#8c610d}
@@ -266,6 +266,7 @@ require __DIR__ . '/views/partials/header.php';
             <div><label for="signatoryName">Signatory name</label><input class="control" id="signatoryName" name="signatory_name" maxlength="160" value="<?= htmlspecialchars((string)$defaults['signatory_name']) ?>"></div>
             <div><label for="signatoryTitle">Signatory title</label><input class="control" id="signatoryTitle" name="signatory_title" maxlength="160" value="<?= htmlspecialchars((string)$defaults['signatory_title']) ?>"></div>
         </div>
+        <p class="ol-hint" id="ctcConv"></p>
         <?php if ($stated): ?><p class="ol-hint">Candidate stated: <?= htmlspecialchars($stated) ?>. The CTC above is what the letter will say.</p><?php endif ?>
         <label>Policies shared with this letter</label>
         <div class="ol-policies">
@@ -289,7 +290,7 @@ require __DIR__ . '/views/partials/header.php';
             <button type="button" onclick="fmt('insertUnorderedList')"><i class="fa-solid fa-list-ul"></i></button><button type="button" onclick="fmt('insertOrderedList')"><i class="fa-solid fa-list-ol"></i></button>
             <button type="button" onclick="fmt('removeFormat')"><i class="fa-solid fa-text-slash"></i></button>
         </div>
-        <div class="rte-wrap"><?= letterPaperHtml('', $brand) ?></div>
+        <div class="rte-wrap"><?= letterPaperHtml('', $brand, ['label' => OFFER_LETTER_TYPES[$defaults['letter_type']] ?? 'Letter', 'ref' => $editing ? letterReference($editing, $brand) : 'Draft']) ?></div>
         <p class="ol-hint">Fields on the left fill the template. After you type in the letter, field changes no longer overwrite it; use <em>Refill from template</em> to start over.</p>
     </article>
 </section>
@@ -337,6 +338,7 @@ const TEMPLATES = <?= json_encode($byType, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HE
 const CANDIDATE = <?= json_encode(['name' => $candidate['name'], 'company' => $brand['name']], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 const INITIAL_BODY = <?= json_encode($editing ? sanitizeLetterHtml((string)$editing['body_html']) : '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 const INITIAL_TEMPLATE = <?= json_encode((int)($defaults['template_id'] ?? 0)) ?>;
+const FX = <?= json_encode(fxRates(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 const CANDIDATE_EMAIL = <?= json_encode((string)($candidate['email'] ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 const body = document.querySelector('.rte-wrap .letter-body');
 body.contentEditable = 'true';
@@ -344,9 +346,40 @@ let edited = !!INITIAL_BODY;
 const $ = id => document.getElementById(id);
 const escText = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 const longDate = v => { if (!v) return ''; const d = new Date(v + 'T00:00:00'); return isNaN(d) ? v : d.toLocaleDateString('en-GB', {day: '2-digit', month: 'long', year: 'numeric'}); };
+const OPTIONAL = ['ctc_converted'];
+// Mirrors normalizeCtcLpa()/ctcConversionText() in PHP: only clear INR amounts are converted.
+function ctcRupees(text) {
+  const v = String(text || '').toLowerCase();
+  if (/[$€£]|\b(usd|aed|eur|gbp|dollars?|dirhams?)\b/.test(v)) return null;
+  const m = v.match(/(\d[\d,]*(?:\.\d+)?)/); if (!m) return null;
+  let n = parseFloat(m[1].replace(/,/g, '')); if (!n) return null;
+  const has = alt => new RegExp('(?<![a-z])(?:' + alt + ')(?![a-z])').test(v);
+  const thousands = has('k|thousand'); if (thousands) n *= 1000;
+  let lpa = null;
+  if (has('crores?|cr')) lpa = n * 100;
+  else if (has('lpa|lakhs?|lacs?|l')) lpa = n;
+  else if (has('per month|monthly|pm|p\.m|month')) lpa = n >= 1000 ? n * 12 / 1e5 : null;
+  else if (thousands) lpa = n / 1e5;
+  else if (n >= 100000) lpa = n / 1e5;
+  else if (n <= 200) lpa = n;
+  return (lpa === null || lpa < 0.5 || lpa > 300) ? null : lpa * 1e5;
+}
+function ctcConversion(text) {
+  const inr = ctcRupees(text);
+  if (inr === null || !FX.inr_per_usd || !FX.inr_per_aed) return '';
+  const r = x => (Math.round(x / 100) * 100).toLocaleString('en-US');
+  const rate = x => String(Math.round(x * 100) / 100);
+  const d = FX.as_of ? ' as of ' + new Date(FX.as_of + 'T00:00:00').toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'}) : '';
+  return `≈ USD ${r(inr / FX.inr_per_usd)} · AED ${r(inr / FX.inr_per_aed)} per annum (indicative: 1 USD = ₹${rate(FX.inr_per_usd)}, 1 AED = ₹${rate(FX.inr_per_aed)}${d})`;
+}
+function showConversion() {
+  const out = $('ctcConv'), conv = ctcConversion($('ctcText').value);
+  if (!FX.inr_per_usd) out.innerHTML = 'USD / AED conversion is off. <a href="documents.php" target="_blank" rel="noopener">Set exchange rates</a>.';
+  else out.textContent = conv || ($('ctcText').value.trim() ? 'Could not read this amount for conversion. Use e.g. "₹12,00,000 per annum" or "12 LPA".' : '');
+}
 function vars() {
   return {
-    candidate_name: CANDIDATE.name, company_name: CANDIDATE.company, designation: $('designation').value, ctc: $('ctcText').value,
+    candidate_name: CANDIDATE.name, company_name: CANDIDATE.company, designation: $('designation').value, ctc: $('ctcText').value, ctc_converted: ctcConversion($('ctcText').value),
     joining_date: longDate($('joiningDate').value), location: $('location').value, reporting_to: $('reportingTo').value,
     respond_by: longDate($('respondBy').value), offer_date: longDate(new Date().toISOString().slice(0, 10)),
     signatory_name: $('signatoryName').value, signatory_title: $('signatoryTitle').value,
@@ -364,7 +397,7 @@ function applyTemplate(force) {
   const tpl = list.find(t => String(t.id) === $('templateId').value) || list[0];
   if (!tpl) { body.innerHTML = '<p class="muted">No template available.</p>'; return; }
   const v = vars();
-  body.innerHTML = tpl.body_html.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (m, k) => k in v ? (escText(v[k]).trim() || '—') : m);
+  body.innerHTML = tpl.body_html.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (m, k) => k in v ? (escText(v[k]).trim() || (OPTIONAL.includes(k) ? '' : '—')) : m);
   edited = false;
 }
 function fmt(cmd, val) { body.focus(); document.execCommand(cmd, false, val ?? null); edited = true; }
@@ -379,6 +412,7 @@ function beforeSubmit(event) {
   }
   return true;
 }
+$('ctcText').addEventListener('input', showConversion); showConversion();
 if (INITIAL_BODY) { refillTemplates(); body.innerHTML = INITIAL_BODY; edited = true; } else { refillTemplates(); }
 </script>
 <?php require __DIR__ . '/views/partials/footer.php'; ?>

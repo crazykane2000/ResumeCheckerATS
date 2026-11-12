@@ -38,6 +38,24 @@ if ($tablesReady && $_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: documents.php?installed=' . $n);
             exit;
         }
+        if ($action === 'fetch_rates' || $action === 'save_rates') {
+            if ($action === 'fetch_rates') {
+                $rates = fetchLatestFxRates();
+            } else {
+                $usd = (float)($_POST['inr_per_usd'] ?? 0);
+                $aed = (float)($_POST['inr_per_aed'] ?? 0);
+                $asOf = (string)($_POST['as_of'] ?? '');
+                if ($usd < 20 || $usd > 500 || $aed < 5 || $aed > 200) throw new RuntimeException('Enter realistic rates (rupees per 1 USD and per 1 AED).');
+                $d = DateTime::createFromFormat('Y-m-d', $asOf);
+                if (!$d || $d->format('Y-m-d') !== $asOf) $asOf = date('Y-m-d');
+                $rates = ['inr_per_usd' => round($usd, 4), 'inr_per_aed' => round($aed, 4), 'as_of' => $asOf, 'source' => 'manual'];
+            }
+            saveIntegration('fx_rates', 'configured', $rates);
+            $audit('fx_rates.' . ($action === 'fetch_rates' ? 'fetched' : 'updated'), null, $rates);
+            $returnId = (int)($_POST['return_id'] ?? 0);
+            header('Location: documents.php?' . ($returnId > 0 ? 'id=' . $returnId . '&' : '') . 'rates=1');
+            exit;
+        }
         if ($action === 'save') {
             $id = (int)($_POST['id'] ?? 0);
             $type = (string)($_POST['doc_type'] ?? '');
@@ -79,11 +97,13 @@ if (!$current && isset($types[$newType])) {
 }
 if (!$current && $all) $current = $all[0];
 if (isset($_GET['saved'])) $message = 'Template saved.';
+if (isset($_GET['rates'])) $message = 'Exchange rates saved. New letters will use them for the USD / AED line.';
+$fx = fxRates();
 if (isset($_GET['installed'])) $message = (int)$_GET['installed'] . ' starter templates installed. Review the wording with HR/legal before sending.';
 
 $sample = [
     'candidate_name' => 'Aarav Mehta', 'designation' => 'Senior Software Engineer', 'company_name' => (string)$brand['name'],
-    'ctc' => '₹18,00,000 per annum', 'joining_date' => date('d F Y', strtotime('+21 days')), 'location' => 'Remote (India)',
+    'ctc' => '₹18,00,000 per annum', 'ctc_converted' => ctcConversionText('₹18,00,000 per annum'), 'joining_date' => date('d F Y', strtotime('+21 days')), 'location' => 'Remote (India)',
     'reporting_to' => 'Engineering Manager', 'respond_by' => date('d F Y', strtotime('+7 days')), 'offer_date' => date('d F Y'),
     'signatory_name' => (string)($user['name'] ?? 'HR Team'), 'signatory_title' => 'Human Resources',
 ];
@@ -109,8 +129,10 @@ $pageStyles = '<style>' . letterPaperCss() . '
 .doc-actions{display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap}
 .doc-note{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5}
 .doc-flash{padding:10px 12px;border-radius:8px;font-size:12px;margin-top:10px}.doc-flash.ok{background:var(--green-soft);color:#0f7a52}.doc-flash.err{background:#fff0f2;color:#b4233c}
-.doc-preview .letter-paper{padding:28px 30px;font-size:12.5px;max-width:none}
+.doc-preview .letter-paper{font-size:12.5px;max-width:none;box-shadow:none}.doc-preview .letter-inner{padding:26px 28px 20px}.doc-preview .letter-foot{margin:0 28px}
 .empty-state{padding:30px;text-align:center}
+.fx-panel{margin-top:12px;padding:14px 16px;display:flex;justify-content:space-between;gap:16px;align-items:flex-end;flex-wrap:wrap}
+.fx-form{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}.fx-form label{display:flex;flex-direction:column;gap:4px;font-size:10px;font-weight:600;color:var(--muted)}.fx-form .control{width:120px}
 @media(max-width:1200px){.doc-grid{grid-template-columns:1fr}}
 </style>';
 require __DIR__ . '/views/partials/header.php';
@@ -122,6 +144,24 @@ require __DIR__ . '/views/partials/header.php';
     <?php if ($message): ?><div class="doc-flash ok"><?= htmlspecialchars($message) ?></div><?php endif ?>
     <?php if ($error): ?><div class="doc-flash err"><?= htmlspecialchars($error) ?></div><?php endif ?>
 </section>
+
+<?php if ($tablesReady): ?>
+<section class="panel fx-panel">
+    <div>
+        <strong style="font-size:13px"><i class="fa-solid fa-money-bill-transfer" style="color:var(--primary)"></i> Currency conversion for CTC</strong>
+        <p class="muted" style="margin:3px 0 0;font-size:11px">Letters show the CTC in USD and AED next to the rupee amount via <code>{{ctc_converted}}</code>, marked as indicative with the rate and date used.
+            <?php if ($fx['inr_per_usd']): ?>Current: 1 USD = ₹<?= htmlspecialchars((string)$fx['inr_per_usd']) ?>, 1 AED = ₹<?= htmlspecialchars((string)$fx['inr_per_aed']) ?><?= $fx['as_of'] ? ' · as of ' . htmlspecialchars(date('d M Y', strtotime($fx['as_of']))) : '' ?><?= $fx['source'] ? ' · ' . htmlspecialchars($fx['source']) : '' ?>.<?php else: ?><strong style="color:#8c610d">Not set yet — the USD/AED line stays hidden until rates are saved.</strong><?php endif ?></p>
+    </div>
+    <form method="post" class="fx-form">
+        <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrfToken()) ?>"><input type="hidden" name="return_id" value="<?= (int)($current['id'] ?? 0) ?>">
+        <label>₹ per 1 USD<input class="control" type="number" step="0.0001" min="20" max="500" name="inr_per_usd" value="<?= htmlspecialchars((string)($fx['inr_per_usd'] ?? '')) ?>"></label>
+        <label>₹ per 1 AED<input class="control" type="number" step="0.0001" min="5" max="200" name="inr_per_aed" value="<?= htmlspecialchars((string)($fx['inr_per_aed'] ?? '')) ?>"></label>
+        <label>As of<input class="control" type="date" name="as_of" value="<?= htmlspecialchars((string)($fx['as_of'] ?? date('Y-m-d'))) ?>"></label>
+        <button class="btn" type="submit" name="action" value="save_rates" style="background:#fff;border:1px solid var(--line)">Save rates</button>
+        <button class="btn btn-primary" type="submit" name="action" value="fetch_rates" formnovalidate><i class="fa-solid fa-rotate"></i> Fetch latest</button>
+    </form>
+</section>
+<?php endif ?>
 
 <?php if ($tablesReady && !$all && (!$current || ($current['id'] ?? 0) === 0)): ?>
 <section class="panel empty-state" style="margin-top:12px">
@@ -183,7 +223,7 @@ require __DIR__ . '/views/partials/header.php';
 
     <article class="panel doc-preview">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><strong style="font-size:13px">Live preview</strong><small class="muted">Sample candidate data</small></div>
-        <div id="previewHost"><?= letterPaperHtml('', $brand) ?></div>
+        <div id="previewHost"><?= letterPaperHtml('', $brand, ['label' => $current['doc_type'] === 'policy' ? 'Company policy' : (OFFER_LETTER_TYPES[$current['doc_type']] ?? 'Letter'), 'ref' => 'Sample']) ?></div>
     </article>
 </section>
 <script>

@@ -116,7 +116,7 @@ details.policy{border:1px solid var(--line);border-radius:8px;margin-bottom:8px;
         <div class="facts">
             <div class="fact"><small>Designation</small><strong><?= htmlspecialchars($offer['designation']) ?></strong></div>
             <?php if ($offer['joining_date']): ?><div class="fact"><small>Date of joining</small><strong><?= $fmt($offer['joining_date']) ?></strong></div><?php endif ?>
-            <?php if ($offer['ctc_text']): ?><div class="fact"><small>Annual CTC</small><strong><?= htmlspecialchars($offer['ctc_text']) ?></strong></div><?php endif ?>
+            <?php if ($offer['ctc_text']): $conv = ctcConversionText($offer['ctc_text']); ?><div class="fact"><small>Annual CTC</small><strong><?= htmlspecialchars($offer['ctc_text']) ?></strong><?php if ($conv !== ''): ?><small style="margin-top:3px"><?= htmlspecialchars($conv) ?></small><?php endif ?></div><?php endif ?>
             <?php if ($isOffer && $offer['respond_by'] && $offer['status'] === 'sent'): ?><div class="fact"><small>Please respond by</small><strong><?= $fmt($offer['respond_by']) ?></strong></div><?php endif ?>
         </div>
         <div class="downloads">
@@ -126,7 +126,7 @@ details.policy{border:1px solid var(--line);border-radius:8px;margin-bottom:8px;
         </div>
     </section>
 
-    <?= letterPaperHtml(sanitizeLetterHtml((string)$offer['body_html']), $brand) ?>
+    <?= letterPaperHtml(sanitizeLetterHtml((string)$offer['body_html']), $brand, ['label' => $label, 'ref' => letterReference($offer, $brand)]) ?>
 
     <?php if ($policies): ?>
     <section class="card" style="margin-top:14px">
