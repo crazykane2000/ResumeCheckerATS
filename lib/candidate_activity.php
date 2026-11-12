@@ -198,13 +198,15 @@ function candidateJourney(array $candidate, array $raw, int $noteCount = 0): arr
         $failed ??= $step;
     }
 
+    // interview_invite.php needs the job; without one, send the recruiter to assign/shortlist first.
+    $inviteUrl = !empty($candidate["job_id"]) ? "interview_invite.php?job_id=" . (int)$candidate["job_id"] : "candidates.php";
     $next = match (true) {
         ($failed['key'] ?? '') === 'decision' => ['text' => 'Closed — ' . strtolower($failed['detail']) . ($failed['at'] ? ' on ' . $failed['at'] : '') . '.', 'url' => null, 'tone' => 'muted'],
-        ($failed['key'] ?? '') === 'booked' => ['text' => 'The booking link expired without a slot. Send a new interview invitation with a fresh window.', 'url' => 'interview_invite.php', 'tone' => 'warn'],
-        ($failed['key'] ?? '') === 'interviewed' => ['text' => 'Candidate missed the interview. Re-invite, or move to Rejected.', 'url' => 'interview_invite.php', 'tone' => 'warn'],
+        ($failed['key'] ?? '') === 'booked' => ['text' => 'The booking link expired without a slot. Send a new interview invitation with a fresh window.', 'url' => $inviteUrl, 'tone' => 'warn'],
+        ($failed['key'] ?? '') === 'interviewed' => ['text' => 'Candidate missed the interview. Re-invite, or move to Rejected.', 'url' => $inviteUrl, 'tone' => 'warn'],
         ($failed['key'] ?? '') === 'offer' => ['text' => 'Offer was declined. Consider the next shortlisted candidate.', 'url' => 'wishlist.php', 'tone' => 'muted'],
         $currentKey === 'shortlisted' => ['text' => 'Review the profile and shortlist the candidate for this job (Candidates → Save favourites).', 'url' => 'candidates.php', 'tone' => 'info'],
-        $currentKey === 'invited' => ['text' => 'Send an interview invitation so the candidate can pick a slot.', 'url' => 'interview_invite.php', 'tone' => 'info'],
+        $currentKey === 'invited' => ['text' => 'Send an interview invitation so the candidate can pick a slot.', 'url' => $inviteUrl, 'tone' => 'info'],
         $currentKey === 'booked' => ['text' => 'Waiting for the candidate to book a slot. ' . $bookedDetail . '.', 'url' => 'interview_calendar.php', 'tone' => 'info'],
         $currentKey === 'interviewed' => ['text' => 'After the interview, record the outcome and add evaluation notes.', 'url' => 'interview_calendar.php', 'tone' => 'info'],
         $currentKey === 'decision' => ['text' => 'Decide: move to Offer to select, or to Rejected. A stage email preview opens before anything is sent.', 'url' => null, 'tone' => 'info'],

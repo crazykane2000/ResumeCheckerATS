@@ -1901,7 +1901,8 @@ function renderJourney(j) {
     </li>`).join('');
   const next = j.next || {};
   const tone = ['warn', 'muted', 'success'].includes(next.tone) ? next.tone : '';
-  const link = next.url ? ` <a href="${esc(next.url)}">Open <i class="fa-solid fa-arrow-right"></i></a>` : '';
+  // New tab keeps the pipeline and this drawer open while the recruiter acts.
+  const link = next.url ? ` <a href="${esc(next.url)}" target="_blank" rel="noopener">Open <i class="fa-solid fa-arrow-up-right-from-square"></i></a>` : '';
   return `
     <section class="journey">
       <div class="journey-head"><h3>Hiring journey</h3><small>${done} of ${j.steps.length} steps</small></div>

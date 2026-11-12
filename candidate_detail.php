@@ -705,7 +705,7 @@ require __DIR__.'/views/partials/header.php';
                 </li>
                 <?php endforeach?>
             </ol>
-            <div class="journey-next <?=$journeyTone?>"><i class="fa-solid fa-circle-arrow-right" style="margin-top:2px"></i><span><strong>Next:</strong> <?=htmlspecialchars($journeyNext['text'])?><?php if(!empty($journeyNext['url'])):?> <a href="<?=htmlspecialchars($journeyNext['url'])?>">Open <i class="fa-solid fa-arrow-right"></i></a><?php endif?></span></div>
+            <div class="journey-next <?=$journeyTone?>"><i class="fa-solid fa-circle-arrow-right" style="margin-top:2px"></i><span><strong>Next:</strong> <?=htmlspecialchars($journeyNext['text'])?><?php if(!empty($journeyNext['url'])):?> <a href="<?=htmlspecialchars($journeyNext['url'])?>" target="_blank" rel="noopener">Open <i class="fa-solid fa-arrow-up-right-from-square"></i></a><?php endif?></span></div>
         </section>
         <h3>
             <span><i class="fa-solid fa-clock-rotate-left" style="color:var(--primary)"></i> Application & Activity History</span>
