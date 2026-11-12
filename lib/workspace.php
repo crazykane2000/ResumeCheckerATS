@@ -227,13 +227,31 @@ function normalizeCandidateSource(?string $source): string {
     }
     return $s;
 }
-function loadCandidateRecords(): array {
+/**
+ * Load candidates for list/detail pages.
+ *
+ * Performance: the database may be remote, so avoid transferring bulk that list pages never read.
+ * The resume raw text and basic-scan keyword lists inside analysis_json (~70% of its size) are
+ * stripped here; they stay in the database untouched. Job rows are fetched once instead of
+ * repeating each job description on every candidate row. Pass $onlyId to load a single candidate.
+ */
+function loadCandidateRecords(?string $onlyId = null): array {
     try{
-        $rows=db()->query('SELECT c.*,j.title job_title,j.description job_description,j.min_experience job_min_experience,j.max_experience job_max_experience,j.required_skills_json job_required_skills_json,j.preferred_skills_json job_preferred_skills_json FROM candidates c LEFT JOIN jobs j ON j.id=c.job_id ORDER BY c.created_at DESC')->fetchAll();
+        $sql="SELECT c.id,c.job_id,c.name,c.role_title,c.email,c.phone,c.country_code,c.country_name,c.current_ctc,c.expected_ctc,c.current_ctc_raw,c.expected_ctc_raw,c.ctc_source,c.score,c.stage,c.source_name,c.skills_json,c.experience_json,JSON_REMOVE(c.analysis_json,'$.raw_text','$.jd_keywords','$.missing_keywords','$.matched_keywords') analysis_json,c.source_url,c.stored_file,c.created_at FROM candidates c".($onlyId!==null?' WHERE c.id=?':'').' ORDER BY c.created_at DESC';
+        $stmt=db()->prepare($sql);$stmt->execute($onlyId!==null?[$onlyId]:[]);$rows=$stmt->fetchAll();
+        $jobById=[];
+        if($rows){
+            $jobIds=array_values(array_unique(array_filter(array_map(fn($r)=>(int)($r['job_id']??0),$rows))));
+            if($jobIds){
+                $js=db()->prepare('SELECT id,title,description,min_experience,max_experience,required_skills_json,preferred_skills_json FROM jobs WHERE id IN ('.implode(',',array_fill(0,count($jobIds),'?')).')');
+                $js->execute($jobIds);
+                foreach($js->fetchAll() as $j)$jobById[(int)$j['id']]=['id'=>(int)$j['id'],'title'=>$j['title'],'description'=>$j['description'],'min_experience'=>$j['min_experience'],'max_experience'=>$j['max_experience'],'required_skills_json'=>$j['required_skills_json'],'preferred_skills_json'=>$j['preferred_skills_json']];
+            }
+        }
         $openJobsCache=null;
-        if($rows)return array_map(function($r) use (&$openJobsCache){
+        if($rows)return array_map(function($r) use (&$openJobsCache,$jobById){
             $candidate=['id'=>$r['id'],'job_id'=>$r['job_id']??null,'name'=>$r['name'],'role'=>$r['role_title'],'email'=>$r['email'],'phone'=>$r['phone'],'country_code'=>countryCodeFromName($r['country_code'],$r['country_name']),'country_name'=>$r['country_name'],'current_ctc'=>$r['current_ctc']!==null?(float)$r['current_ctc']:null,'expected_ctc'=>$r['expected_ctc']!==null?(float)$r['expected_ctc']:null,'current_ctc_raw'=>$r['current_ctc_raw']??null,'expected_ctc_raw'=>$r['expected_ctc_raw']??null,'ctc_source'=>$r['ctc_source']??null,'legacy_score'=>(int)$r['score'],'stage'=>$r['stage'],'source'=>normalizeCandidateSource($r['source_name']??''),'skills'=>json_decode($r['skills_json']??'[]',true)?:[],'experience'=>json_decode($r['experience_json']??'{}',true)?:[],'analysis'=>json_decode($r['analysis_json']??'{}',true)?:[],'file'=>$r['stored_file'],'source_url'=>$r['source_url']??null,'created_at'=>$r['created_at']];
-            $job=$r['job_id']?['id'=>(int)$r['job_id'],'title'=>$r['job_title'],'description'=>$r['job_description'],'min_experience'=>$r['job_min_experience'],'max_experience'=>$r['job_max_experience'],'required_skills_json'=>$r['job_required_skills_json'],'preferred_skills_json'=>$r['job_preferred_skills_json']]:null;
+            $job=$r['job_id']?($jobById[(int)$r['job_id']]??['id'=>(int)$r['job_id'],'title'=>null,'description'=>null,'min_experience'=>null,'max_experience'=>null,'required_skills_json'=>null,'preferred_skills_json'=>null]):null;
             if(!$job && !empty($candidate['skills'])){
                 if($openJobsCache===null){
                     $openJobsCache=db()->query("SELECT j.id,j.title,j.description,j.min_experience,j.max_experience,j.required_skills_json,j.preferred_skills_json FROM jobs j WHERE j.status IN ('open','draft') AND j.required_skills_json IS NOT NULL AND j.required_skills_json != '' AND j.required_skills_json != '[]'")->fetchAll();

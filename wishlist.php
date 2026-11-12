@@ -58,7 +58,20 @@ $profiles=$profilesStmt->fetchAll();
 
 $allCandidates=loadCandidateRecords();
 
-// Build detailed profile data map
+// Build detailed profile data map.
+// Wishlist items and active invite locks are fetched for all profiles in two queries
+// (previously two queries per profile, each a network round trip to the remote DB).
+$itemsByProfile=[];$locksByProfile=[];
+$profileIds=array_values(array_unique(array_map(fn($p)=>(int)$p['id'],$profiles)));
+if($profileIds){
+    $marks=implode(',',array_fill(0,count($profileIds),'?'));
+    $allItemsStmt=$pdo->prepare("SELECT profile_id, candidate_id, disposition FROM wishlist_items WHERE profile_id IN ($marks)");
+    $allItemsStmt->execute($profileIds);
+    foreach($allItemsStmt->fetchAll() as $row)$itemsByProfile[(int)$row['profile_id']][]=$row;
+    $allLocksStmt=$pdo->prepare("SELECT profile_id, candidate_id FROM interview_invite_locks WHERE profile_id IN ($marks) AND active=1");
+    $allLocksStmt->execute($profileIds);
+    foreach($allLocksStmt->fetchAll() as $row)$locksByProfile[(int)$row['profile_id']][]=$row['candidate_id'];
+}
 $profileData=[];
 foreach($profiles as $prof){
     $profId=(int)$prof['id'];
@@ -71,14 +84,12 @@ foreach($profiles as $prof){
     }));
 
     // Wishlist items for this profile
-    $itemStmt=$pdo->prepare('SELECT candidate_id, disposition FROM wishlist_items WHERE profile_id=?');
-    $itemStmt->execute([$profId]);
     $statuses=[];
     $selectedCount=0;
     $wishlistCount=0;
     $blacklistedCount=0;
 
-    foreach($itemStmt->fetchAll() as $row){
+    foreach($itemsByProfile[$profId]??[] as $row){
         $statuses[$row['candidate_id']]=$row['disposition'];
         if($row['disposition']==='selected')$selectedCount++;
         elseif($row['disposition']==='wishlist')$wishlistCount++;
@@ -86,9 +97,7 @@ foreach($profiles as $prof){
     }
 
     // Locked/invited candidates
-    $lockStmt=$pdo->prepare('SELECT candidate_id FROM interview_invite_locks WHERE profile_id=? AND active=1');
-    $lockStmt->execute([$profId]);
-    $locks=array_fill_keys($lockStmt->fetchAll(PDO::FETCH_COLUMN),true);
+    $locks=array_fill_keys($locksByProfile[$profId]??[],true);
 
     $items=array_values(array_filter($eligible,fn($cand)=>isset($statuses[$cand['id']])));
     usort($items,fn($a,$b)=>(int)($b['job_match']['analyzed']??0)<=> (int)($a['job_match']['analyzed']??0)?:(($b['score']??-1)<=>($a['score']??-1)));

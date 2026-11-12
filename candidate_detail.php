@@ -11,7 +11,7 @@ $ownerId=(int)$pdo->query('SELECT MIN(id) FROM users')->fetchColumn();
 $isOwner=(int)(currentUser()['id']??0)===$ownerId;
 
 $candidate=null;
-foreach(loadCandidateRecords() as $row){
+foreach(loadCandidateRecords((string)$id) as $row){
     if(($row['id']??'')===$id){
         $candidate=$row;
         break;
