@@ -96,20 +96,23 @@ function ctcExperienceBand(?float $years): ?string
 }
 
 /**
- * Build the estimate pool: median candidate-stated expected CTC per experience band.
+ * Build the estimate pools: median candidate-stated expected CTC per experience band
+ * ("3-5 yrs"), per job ("job:12") and across all applicants ("all").
  * Only values the candidate stated themselves (source = form) are used.
  *
- * @param array<int, array{expected_ctc: ?float, ctc_source: ?string, years: ?float}> $rows
+ * @param array<int, array{expected_ctc: ?float, ctc_source: ?string, years: ?float, job_id?: ?int}> $rows
  * @return array<string, array{median: float, count: int}>
  */
 function ctcBudgetBands(array $rows, int $minSamples = 5): array
 {
     $buckets = [];
     foreach ($rows as $row) {
-        $band = ctcExperienceBand($row['years'] ?? null);
         $lpa = $row['expected_ctc'] ?? null;
-        if ($band === null || ($row['ctc_source'] ?? null) !== 'nonceblox_form' || !ctcIsPlausible($lpa)) continue;
-        $buckets[$band][] = (float)$lpa;
+        if (($row['ctc_source'] ?? null) !== 'nonceblox_form' || !ctcIsPlausible($lpa)) continue;
+        $buckets['all'][] = (float)$lpa;
+        $band = ctcExperienceBand($row['years'] ?? null);
+        if ($band !== null) $buckets[$band][] = (float)$lpa;
+        if (!empty($row['job_id'])) $buckets['job:' . (int)$row['job_id']][] = (float)$lpa;
     }
     $bands = [];
     foreach ($buckets as $band => $values) {
@@ -147,19 +150,26 @@ function candidateBudget(array $c, array $bands): array
         trim((string)($c['current_ctc_raw'] ?? '')) !== '' ? 'current "' . $c['current_ctc_raw'] . '"' : null,
     ]);
 
+    // Approximate fallback, most specific pool first: same experience band, same job, all applicants.
     $years = isset($c['years']) ? (float)$c['years'] : null;
     $band = ctcExperienceBand($years);
-    if ($band !== null && isset($bands[$band])) {
-        $est = $bands[$band];
-        $detail = 'Approximate only — median expected CTC of ' . $est['count'] . ' applicants with ' . $band . ' experience. Not stated by this candidate.';
+    $jobKey = !empty($c['job_id']) ? 'job:' . (int)$c['job_id'] : null;
+    $pools = [
+        [$band, $band !== null ? 'applicants with ' . $band . ' experience' : null, 'experience'],
+        [$jobKey, 'applicants for the same job', 'job'],
+        ['all', 'all applicants', 'all'],
+    ];
+    foreach ($pools as [$key, $who, $basis]) {
+        if ($key === null || !isset($bands[$key])) continue;
+        $est = $bands[$key];
+        $of = $basis === 'all' ? 'all ' . $est['count'] . ' applicants' : $est['count'] . ' ' . $who;
+        $detail = 'Approximate only — median expected CTC of ' . $of . '. Not stated by this candidate.';
         if ($rawParts) $detail .= ' Candidate wrote: ' . implode(', ', $rawParts) . ' (needs review).';
-        return ['kind' => 'estimate', 'lpa' => $est['median'], 'label' => '~' . formatLpa($est['median']), 'detail' => $detail];
+        return ['kind' => 'estimate', 'basis' => $basis, 'lpa' => $est['median'], 'label' => '~' . formatLpa($est['median']), 'detail' => $detail];
     }
+    // Only reached when no candidate-stated CTC exists at all (e.g. before the NonceBlox backfill).
     if ($rawParts) {
         return ['kind' => 'review', 'lpa' => null, 'label' => 'Review', 'detail' => 'Unclear or non-INR value: ' . implode(', ', $rawParts)];
     }
-    $why = $band === null
-        ? 'experience is uncertain'
-        : 'too few candidate-stated expected CTCs for ' . $band . ' experience';
-    return ['kind' => 'none', 'lpa' => null, 'label' => 'Not stated', 'detail' => 'No CTC available and ' . $why . ', so no estimate is shown.'];
+    return ['kind' => 'none', 'lpa' => null, 'label' => 'Not stated', 'detail' => 'No candidate-stated CTC data is available yet to estimate from.'];
 }

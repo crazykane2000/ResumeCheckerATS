@@ -83,7 +83,7 @@ $items=loadCandidateRecords();
 
 // Approximate budget pool: median candidate-stated expected CTC per experience band (see lib/ctc.php).
 $candidateYears=static function(array $c): ?float{$m=(int)($c['experience']['total_months']??0);return $m>0?round($m/12,1):null;};
-$budgetBands=ctcBudgetBands(array_map(fn($c)=>['expected_ctc'=>$c['expected_ctc']??null,'ctc_source'=>$c['ctc_source']??null,'years'=>$candidateYears($c)],$items));
+$budgetBands=ctcBudgetBands(array_map(fn($c)=>['expected_ctc'=>$c['expected_ctc']??null,'ctc_source'=>$c['ctc_source']??null,'years'=>$candidateYears($c),'job_id'=>$c['job_id']??null],$items));
 
 $candidates=[];
 $favourites=[];
@@ -365,7 +365,7 @@ require __DIR__.'/views/partials/header.php';
                                     <?php $budget=$candidate['budget'];$verify=in_array($budget['kind'],['expected','current'],true)&&($candidate['ctc_source']??'')!=='nonceblox_form';?>
                                     <td class="budget-cell budget-<?=htmlspecialchars($budget['kind'])?>" title="<?=htmlspecialchars($budget['detail'])?>">
                                         <strong><?=htmlspecialchars($budget['label'])?></strong>
-                                        <small><?=match($budget['kind']){'expected'=>$verify?'Expected · verify':'Expected','current'=>$verify?'Current · verify':'Current only','estimate'=>'Approx. estimate','review'=>'Unclear value',default=>'—'}?></small>
+                                        <small><?=match($budget['kind']){'expected'=>$verify?'Expected · verify':'Expected','current'=>$verify?'Current · verify':'Current only','estimate'=>match($budget['basis']??''){'job'=>'Approx · job avg','all'=>'Approx · overall',default=>'Approx · by experience'},'review'=>'Unclear value',default=>'—'}?></small>
                                     </td>
                                     <td class="score-cell"><?php if(!empty($candidate['analysis']['requires_ocr'])||($candidate['analysis']['processing_status']??'')==='requires_ocr'):?><span class="score" style="color:#8c610d;background:#fff5e7;padding:3px 7px;border-radius:5px;font-size:10px;font-weight:700">Needs OCR</span><?php elseif(!$candidate['configured']):?><span class="score" style="color:#4338ca;background:#e0e7ff;padding:3px 8px;border-radius:5px;font-size:10px;font-weight:700" title="Candidate unassigned to a job post. Select/assign a job to calculate match score.">Unassigned</span><?php elseif($candidate['analyzed']):?><span class="score"><?=$candidate['job_score']?>%</span><?php elseif(!empty($candidate['legacy_score']) && $candidate['legacy_score'] > 0):?><span class="score"><?=$candidate['legacy_score']?>%</span><?php else:?><span class="score" style="color:#4338ca;background:#e0e7ff;padding:3px 8px;border-radius:5px;font-size:11px;font-weight:700">Indexed</span><?php endif?></td>
                                     <td style="white-space:nowrap">
