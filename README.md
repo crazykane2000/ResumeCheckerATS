@@ -20,13 +20,17 @@ The core application works without an AI provider. AI integrations are optional 
 - Interactive Candidate Profile Overlay Drawer with Speedometer gauge match meter, proportional breakdown, and 5 tabs (Overview, Evidence, Career, Timeline & Notes, Resume Data).
 - Recruiter Interview Evaluation Notes with round feedback ("Kya hua"), strengths ("Kya achha tha"), recommendation rating, and chronological timeline.
 - Branded NonceBlox Lifecycle Mailer for 6 stages with live preview and dual NonceBlox API/SMTP dispatch.
+- Hiring journey stepper (Applied → Joined) with next-step hints, and interview outcomes recorded from the pipeline drawer.
+- Offer and appointment letters on the company letterhead (NonceBlox / Nonce Labs, editable details), PDF and Word downloads, policies, indicative USD/AED CTC, and a candidate portal to accept or decline.
+- Offers & Employees tracker; hired people leave the active pipeline.
+- Candidate Budget column from candidate-stated CTC with labelled approximate estimates.
 - Automatic OCR.space cloud API fallback for scanned or image-only PDFs.
 - Candidate filters for job, skill, experience, source, score, stage, and country.
 - Candidate sorting by score or experience.
 - Interactive country map with resume counts, percentages, tooltips, and candidate filtering.
 - Organization name, logo, and favicon configuration.
 - Encrypted integration settings for SMTP, Google services, AI providers, and the NonceBlox source database.
-- Permission-aware admin accounts and audit records for sensitive actions.
+- Admin accounts with owner-only destructive actions, and audit records for sensitive actions. Granular per-role permissions are not implemented yet.
 
 ## Temporary Evidence ATS Lab
 
@@ -64,9 +68,9 @@ No PHP framework, Node.js runtime, React application, Redis, or vector database 
 - Composer
 - PHP extensions: `pdo_mysql`, `mbstring`, `fileinfo`, and `zip`
 - Optional PDF fallback: Poppler `pdftotext`
-- Optional legacy DOC tools: Antiword, Catdoc, or LibreOffice
+- Legacy DOC: built-in Word 97-2003 reader; Antiword, Catdoc or LibreOffice are optional fallbacks
 
-Scanned/image-only PDFs are flagged for OCR review; OCR is not silently fabricated.
+Scanned/image-only PDFs fall back to the OCR.space cloud API; if OCR fails they are flagged for review. Missing text is never fabricated.
 
 ## Local installation
 
@@ -115,7 +119,7 @@ Production credentials should be supplied by environment variables or configured
 
 - PDF: `smalot/pdfparser`, with an optional `pdftotext` fallback.
 - DOCX: reads Word XML through `ZipArchive`.
-- DOC: tries Antiword, Catdoc, or headless LibreOffice.
+- DOC: built-in Word 97-2003 reader (`lib/doc_parser.php`); falls back to Antiword, Catdoc or headless LibreOffice. Password-protected or corrupt files are reported.
 
 Parsing failures, short/scanned PDFs, and unavailable DOC converters are reported. Unknown information stays unknown.
 
@@ -173,7 +177,7 @@ Database backups contain personal data and remain local; they are intentionally 
 ## Known limitations
 
 - Scanned PDFs utilize the OCR.space cloud API fallback; local offline OCR (e.g. Tesseract) is not configured.
-- Legacy DOC quality depends on external conversion tools.
+- Legacy DOC support covers Word 97-2003 binary files; headers, footers and text boxes are not extracted.
 - Email is preview/control oriented until SMTP delivery is explicitly enabled and verified.
 - Google Calendar/Drive production OAuth flows require configured credentials and consent.
 - The Evidence ATS Lab remains experimental and does not replace production scoring yet.

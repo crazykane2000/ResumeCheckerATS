@@ -1,8 +1,9 @@
-<?php
-require_once __DIR__ . '/../lib/auth.php';
-$pdo = db();
+-- Interview scorecards (documents an existing table)
+--
+-- This table was previously created only by a one-off script (scratch/setup_scorecards_table.php)
+-- and is used by candidate_detail.php and lib/notifications.php. It already exists on the
+-- shared database; this file makes it part of the normal migration set for new installs.
 
-$sql = "
 CREATE TABLE IF NOT EXISTS interview_scorecards (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     candidate_id VARCHAR(32) NOT NULL,
@@ -22,11 +23,3 @@ CREATE TABLE IF NOT EXISTS interview_scorecards (
     KEY idx_scorecard_candidate (candidate_id),
     KEY idx_scorecard_job (job_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-";
-
-try {
-    $pdo->exec($sql);
-    echo "SUCCESS: interview_scorecards table created/verified.\n";
-} catch (Throwable $e) {
-    echo "ERROR: " . $e->getMessage() . "\n";
-}

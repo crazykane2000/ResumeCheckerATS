@@ -35,7 +35,7 @@ The change prevents exact skill-list coverage from being presented beside richer
 - `lib/application_match.php`: evidence v1 mapping and score calculation.
 - `lib/workspace.php`: attaches canonical job data and the Evidence v1 result to each application record; retains the stored score as `legacy_score`.
 - `dashboard.php`: job-scoped Evidence v1 ranking.
-- `dashboard2.php`: evidence score, mapping details, ranking, filtering, and explicit analysis state.
+- `dashboard.php`: evidence score, mapping details, ranking, filtering, and explicit analysis state.
 - `candidates.php`: Evidence v1 display, analysis state, and canonical job filtering.
 - `candidate_detail.php`: job-specific Evidence v1 score and requirement mapping.
 - `job_profile.php`: job-scoped Evidence v1 top-five ranking.
