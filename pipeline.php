@@ -78,6 +78,22 @@ $cStmt = $pdo->prepare($candidatesSql);
 $cStmt->execute($params);
 $rawCandidates = $cStmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Card scores use the same job-specific Evidence v1 match as the Candidates page
+// (docs/scoring-evidence-v1.md). The stored legacy keyword score (candidates.score) is
+// no longer shown here; it stays in the database unchanged.
+require_once __DIR__ . '/lib/application_match.php';
+$evidenceById = [];
+foreach (loadCandidateRecords() as $rec) {
+    $m = $rec['job_match'] ?? [];
+    if (empty($m['configured']) || empty($m['analyzed'])) continue;
+    $b = $m['breakdown'] ?? [];
+    $evidenceById[(string)$rec['id']] = [
+        'score' => (int)($m['score'] ?? 0),
+        'tip' => sprintf('Evidence v1 job match · Required skills %d/40 · Experience %d/25 · Preferred %d/10 · Role %d/10 · Evidence %d/15',
+            (int)($b['required_skills'] ?? 0), (int)($b['relevant_experience'] ?? 0), (int)($b['preferred_skills'] ?? 0), (int)($b['role_similarity'] ?? 0), (int)($b['evidence_strength'] ?? 0)),
+    ];
+}
+
 // Categorize candidates into the Active Pipeline stages
 $activeColumns = [
     'Invited' => [
@@ -1054,7 +1070,8 @@ require __DIR__ . '/views/partials/header.php';
           <div class="kanban-dropzone" data-stage="<?=$stageKey?>">
             <?php foreach ($group as $c): 
               $d = candidatePresentation($c);
-              $candScore = (int)($c['score'] ?? 0);
+              $ev = $evidenceById[(string)$c['id']] ?? null;
+              $candScore = (int)($ev['score'] ?? 0);
               $hasSlot = !empty($c['slot_starts_at']);
             ?>
               <div class="cand-card" 
@@ -1071,7 +1088,7 @@ require __DIR__ . '/views/partials/header.php';
                     <?=htmlspecialchars($d['name'])?>
                   </span>
                   <?php if ($candScore > 0): ?>
-                    <span class="cand-score"><?=$candScore?>%</span>
+                    <span class="cand-score" title="<?=htmlspecialchars($ev['tip'] ?? '')?>"><?=$candScore?>%</span>
                   <?php endif; ?>
                 </div>
 
@@ -1129,7 +1146,8 @@ require __DIR__ . '/views/partials/header.php';
     <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:12px;">
       <?php foreach ($poolItems as $c): 
         $d = candidatePresentation($c);
-        $candScore = (int)($c['score'] ?? 0);
+        $ev = $evidenceById[(string)$c['id']] ?? null;
+              $candScore = (int)($ev['score'] ?? 0);
       ?>
         <div class="cand-card" onclick="openCandidateDrawer('<?=htmlspecialchars($c['id'], ENT_QUOTES)?>')" style="cursor:pointer;">
           <div class="cand-card-head">
@@ -1137,7 +1155,7 @@ require __DIR__ . '/views/partials/header.php';
               <?=htmlspecialchars($d['name'])?>
             </span>
             <?php if ($candScore > 0): ?>
-              <span class="cand-score"><?=$candScore?>%</span>
+              <span class="cand-score" title="<?=htmlspecialchars($ev['tip'] ?? '')?>"><?=$candScore?>%</span>
             <?php endif; ?>
           </div>
 

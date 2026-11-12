@@ -43,3 +43,11 @@ The change prevents exact skill-list coverage from being presented beside richer
 - `analytics.php`: job-scoped Evidence v1 averages and experience-backed skill coverage.
 
 No database schema, stored candidate score, pipeline stage, shortlist, or rejection behavior is changed.
+
+## Change 2026-11-12: Pipeline cards
+
+- **Previous behaviour:** Kanban cards and the applicant pool on `pipeline.php` showed the stored legacy keyword percentage (`candidates.score`, produced by `basicMatch()`), while candidate lists, details and wishlists showed Evidence v1. The same application could show two different numbers.
+- **New behaviour:** `pipeline.php` cards show the Evidence v1 job match from `applicationEvidenceMatch()` (via `loadCandidateRecords()`), with the point breakdown in the hover title. Cards for applications whose job has no required skills, or that lack skill/experience analysis, show no score (instead of the keyword percentage).
+- **Unchanged:** weights, skill relations, tokenisation, `basicMatch()` and the stored `candidates.score` column. This is a display-consistency change only.
+- **Files:** `pipeline.php`.
+- **Measured on the shared database (385 scored applications):** median legacy keyword score 23%, median Evidence v1 22%; 39 applications receive 0/40 for required skills (16 have no detected skills; the rest genuinely lack the job's required skills).
