@@ -5,6 +5,7 @@ requireAuth();
 require_once __DIR__ . '/lib/onboarding.php';
 
 $pdo = db();
+if ((int)(currentUser()['id'] ?? 0) !== (int)$pdo->query('SELECT MIN(id) FROM users')->fetchColumn()) { http_response_code(403); exit('Only the workspace owner can access onboarding documents.'); }
 $s = $pdo->prepare('SELECT o.id, o.candidate_id, o.item_key, o.file_path, o.original_name, o.mime FROM onboarding_items o WHERE o.id=?');
 $s->execute([(int)($_GET['id'] ?? 0)]);
 $row = $s->fetch();

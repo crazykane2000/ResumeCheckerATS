@@ -4,9 +4,13 @@ requireAuth();
 require_once __DIR__ . '/lib/workspace.php';
 require_once __DIR__ . '/lib/offer_letters.php';
 require_once __DIR__ . '/lib/lifecycle_mailer.php';
+require_once __DIR__ . '/lib/onboarding.php';
 
 $pdo = db();
 $user = currentUser();
+$canReviewOnboarding = (int)$user['id'] === (int)$pdo->query('SELECT MIN(id) FROM users')->fetchColumn();
+$salaryReady = false;
+try { $pdo->query('SELECT salary_breakup_json FROM offer_letters LIMIT 1'); $salaryReady = true; } catch (Throwable $e) {}
 $brand = organizationBrand();
 $candidateId = trim((string)($_GET['candidate_id'] ?? $_POST['candidate_id'] ?? ''));
 $message = '';
@@ -51,6 +55,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string)($_POST['action'] ?? '');
     $offerId = (int)($_POST['offer_id'] ?? 0);
     try {
+        if ($action === 'review_onboarding') {
+            if (!$canReviewOnboarding) { http_response_code(403); exit('Only the workspace owner can review onboarding.'); }
+            $offer = $loadOffer($offerId);
+            if (!$offer || $offer['status'] !== 'accepted' || $offer['letter_type'] !== 'offer_letter') throw new RuntimeException('An accepted offer is required.');
+            $decision = (string)($_POST['decision'] ?? '');
+            $note = trim((string)($_POST['review_note'] ?? ''));
+            if (!in_array($decision, ['verified', 'rejected'], true) || mb_strlen($note) > 500 || ($decision === 'rejected' && $note === '')) throw new RuntimeException('Choose a review decision and provide a reason for re-upload (maximum 500 characters).');
+            $pdo->beginTransaction();
+            $q = $pdo->prepare("UPDATE onboarding_items SET status=?,reviewed_at=NOW(),reviewed_by=?,review_note=? WHERE id=? AND offer_id=? AND candidate_id=? AND status='submitted' AND submitted_at=?");
+            $q->execute([$decision, $user['id'], $note ?: null, (int)($_POST['item_id'] ?? 0), $offerId, $candidateId, (string)($_POST['submitted_at'] ?? '')]);
+            if ($q->rowCount() !== 1) throw new RuntimeException('This submission changed or was already reviewed. Reload before reviewing.');
+            $pdo->prepare('INSERT INTO audit_events(user_id,action,entity_type,entity_id,metadata_json) VALUES(?,?,?,?,?)')->execute([$user['id'], 'onboarding.item_reviewed', 'candidate', $candidateId, json_encode(['offer_id' => $offerId, 'item_id' => (int)$_POST['item_id'], 'decision' => $decision])]);
+            $pdo->commit();
+            header('Location: offer_letter.php?candidate_id=' . urlencode($candidateId) . '&reviewed=1'); exit;
+        }
         if (in_array($action, ['save_draft', 'send'], true)) {
             $type = (string)($_POST['letter_type'] ?? 'offer_letter');
             if (!isset(OFFER_LETTER_TYPES[$type])) throw new RuntimeException('Choose a valid letter type.');
@@ -81,6 +100,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'policy_ids_json' => json_encode($policySnapshot((array)($_POST['policy_ids'] ?? []))),
                 'email_subject' => mb_substr(trim((string)($_POST['email_subject'] ?? '')), 0, 255) ?: null,
             ];
+            $salaryRows = salaryBreakupFromPost((array)($_POST['salary_label'] ?? []), (array)($_POST['salary_amount'] ?? []));
+            if ($salaryRows && !$salaryReady) throw new RuntimeException('Apply the onboarding migration before adding salary components.');
+            if ($salaryReady) $fields['salary_breakup_json'] = $salaryRows ? json_encode($salaryRows, JSON_THROW_ON_ERROR) : null;
             $entityKey = (string)($_POST['entity_key'] ?? '');
             if (!isset(letterEntities()[$entityKey])) $entityKey = (string)array_key_first(letterEntities());
             if (offerEntityColumnExists($pdo)) $fields['entity_key'] = $entityKey;
@@ -159,6 +181,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
     } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
         $error = $e instanceof RuntimeException ? $e->getMessage() : 'Something went wrong. Nothing was sent.';
         if ($offerId > 0 && in_array($action, ['save_draft', 'send'], true)) $_GET['offer_id'] = $offerId;
     }
@@ -174,6 +197,7 @@ $editing = null;
 if (!empty($_GET['offer_id'])) foreach ($offers as $o) if ((int)$o['id'] === (int)$_GET['offer_id'] && $o['status'] === 'draft') $editing = $o;
 $wantType = (string)($_GET['type'] ?? '');
 if (!$editing && !isset(OFFER_LETTER_TYPES[$wantType])) $wantType = strtolower((string)$candidate['stage']) === 'hired' ? 'hiring_letter' : 'offer_letter';
+if (isset($_GET['reviewed'])) $message = 'Onboarding review saved.';
 if (isset($_GET['saved'])) $message = 'Draft saved. Review it, then send it to the candidate.';
 if (isset($_GET['sent'])) $message = 'Letter emailed to ' . ($candidate['email'] ?? 'the candidate') . '. Their personal link opens on ' . parse_url(offerPublicBaseUrl(), PHP_URL_HOST) . '.';
 if (isset($_GET['withdrawn'])) $message = 'Letter withdrawn. The candidate link no longer allows a response.';
@@ -300,12 +324,27 @@ require __DIR__ . '/views/partials/header.php';
             <button type="button" onclick="fmt('insertUnorderedList')"><i class="fa-solid fa-list-ul"></i></button><button type="button" onclick="fmt('insertOrderedList')"><i class="fa-solid fa-list-ol"></i></button>
             <button type="button" onclick="fmt('removeFormat')"><i class="fa-solid fa-text-slash"></i></button>
         </div>
+        <?php if ($salaryReady): $salaryRows = json_decode((string)($defaults['salary_breakup_json'] ?? ''), true) ?: []; ?>
+        <details class="panel" style="padding:12px;margin-bottom:12px"><summary>Salary breakup - annual INR components</summary>
+        <p class="ol-hint">Optional annexure included in portal, print and Word downloads. Total should agree with the annual CTC above.</p>
+        <?php for ($si=0; $si<20; $si++): ?>
+        <div class="ol-two"><input class="control" name="salary_label[]" maxlength="80" aria-label="Component <?= $si+1 ?>" placeholder="Component" value="<?= htmlspecialchars($salaryRows[$si]['label'] ?? '') ?>"><input class="control" name="salary_amount[]" type="number" min="0" max="1000000000000" step="0.01" aria-label="Annual INR amount <?= $si+1 ?>" placeholder="Annual INR" value="<?= htmlspecialchars((string)($salaryRows[$si]['annual'] ?? '')) ?>"></div>
+        <?php endfor ?></details><?php endif ?>
         <div class="rte-wrap"><?= letterPaperHtml('', $previewBrand, ['label' => OFFER_LETTER_TYPES[$defaults['letter_type']] ?? 'Letter', 'ref' => $editing ? letterReference($editing, $previewBrand) : 'Draft']) ?></div>
         <p class="ol-hint">Fields on the left fill the template. After you type in the letter, field changes no longer overwrite it; use <em>Refill from template</em> to start over.</p>
     </article>
 </section>
 </form>
 
+<?php if ($canReviewOnboarding && onboardingTablesReady($pdo)): foreach ($offers as $obOffer): if ($obOffer['letter_type'] !== 'offer_letter' || $obOffer['status'] !== 'accepted') continue; $obItems = onboardingItems($pdo, (int)$obOffer['id']); $obProgress = onboardingProgress($obItems); ?>
+<section class="panel ol-history"><h2>Onboarding - offer #<?= (int)$obOffer['id'] ?></h2><p><?= $obProgress['required_verified'] ?>/<?= $obProgress['required'] ?> required items verified. Hiring remains a separate recruiter decision.</p>
+<?php foreach ($obItems as $item): $r=$item['row']; ?><div style="padding:12px 0;border-bottom:1px solid var(--line)"><strong><?= htmlspecialchars($item['label']) ?></strong> - <?= htmlspecialchars(ONBOARDING_STATUS[$item['status']] ?? $item['status']) ?>
+<?php if ($r): ?><p class="muted"><?= htmlspecialchars($item['kind'] === 'bank' ? onboardingMaskedBank($r['data_json']) : (string)$r['original_name']) ?></p>
+<?php if ($r['file_path']): ?><a href="onboarding_file.php?id=<?= (int)$r['id'] ?>" target="_blank" rel="noopener">View document</a> | <a href="onboarding_file.php?id=<?= (int)$r['id'] ?>&amp;download=1">Download</a><?php endif ?>
+<?php if ($r['review_note']): ?><p><?= htmlspecialchars($r['review_note']) ?></p><?php endif ?>
+<?php if ($item['status'] === 'submitted'): ?><form method="post"><input type="hidden" name="csrf" value="<?= htmlspecialchars(csrfToken()) ?>"><input type="hidden" name="action" value="review_onboarding"><input type="hidden" name="offer_id" value="<?= (int)$obOffer['id'] ?>"><input type="hidden" name="item_id" value="<?= (int)$r['id'] ?>"><input type="hidden" name="submitted_at" value="<?= htmlspecialchars($r['submitted_at']) ?>"><input class="control" name="review_note" maxlength="500" placeholder="Review note (required for re-upload)" aria-label="Review note"><button class="btn" name="decision" value="verified">Verify</button> <button class="btn btn-ghost" name="decision" value="rejected">Request re-upload</button></form><?php endif ?>
+<?php endif ?></div><?php endforeach ?></section>
+<?php endforeach; endif ?>
 <section class="panel ol-history">
     <h2 style="font-size:14px;margin:0 0 8px">Letters for this candidate</h2>
     <?php if (!$offers): ?><p class="muted" style="font-size:12px;margin:0">No letters yet.</p><?php else: ?>

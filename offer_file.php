@@ -5,6 +5,7 @@
 // "print" renders a print-ready page that opens the browser's Save-as-PDF dialog.
 require_once __DIR__ . '/lib/auth.php';
 require_once __DIR__ . '/lib/offer_letters.php';
+require_once __DIR__ . '/lib/onboarding.php';
 
 $pdo = db();
 $token = (string)($_GET['token'] ?? '');
@@ -32,7 +33,7 @@ $brand = entityBrand(organizationBrand(), letterEntity($offer['entity_key'] ?? n
 $policies = json_decode((string)($offer['policy_ids_json'] ?? ''), true) ?: [];
 $policiesHtml = '';
 foreach ($policies as $p) $policiesHtml .= sanitizeLetterHtml(renderLetterTemplate((string)($p['body_html'] ?? ''), ['company_name' => (string)$brand['name']]));
-$letterHtml = sanitizeLetterHtml((string)$offer['body_html']);
+$letterHtml = sanitizeLetterHtml((string)$offer['body_html'] . salaryBreakupHtml($offer['salary_breakup_json'] ?? null));
 $candidateName = (string)$offer['candidate_name'];
 
 try {

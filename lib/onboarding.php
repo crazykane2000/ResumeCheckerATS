@@ -136,7 +136,7 @@ function salaryBreakupFromPost(array $labels, array $amounts): array
         $label = mb_substr(trim((string)$label), 0, 80);
         $raw = str_replace([',', ' '], '', (string)($amounts[$i] ?? ''));
         if ($label === '' && $raw === '') continue;
-        if ($label === '' || !is_numeric($raw) || (float)$raw < 0) throw new RuntimeException('Each salary component needs a name and a non-negative annual amount.');
+        if ($label === '' || !is_numeric($raw) || (!is_finite((float)$raw) || (float)$raw < 0 || (float)$raw > 1000000000000)) throw new RuntimeException('Each salary component needs a name and a non-negative annual amount.');
         $rows[] = ['label' => $label, 'annual' => round((float)$raw, 2)];
     }
     return array_slice($rows, 0, 20);
