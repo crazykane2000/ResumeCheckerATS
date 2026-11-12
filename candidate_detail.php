@@ -84,7 +84,10 @@ $maxSkill=$skillValues?max($skillValues):1;
 
 $isOldCandidate=candidateIsOldApplication($candidate);
 $candidateAgeStr=candidateApplicationAge($candidate);
-$activityTimeline=candidateActivityTimeline($pdo, $candidate);
+$activityTimeline=candidateActivityTimeline($pdo, $candidate, $journeyRaw);
+$noteCountStmt=$pdo->prepare('SELECT COUNT(*) FROM candidate_notes WHERE candidate_id=?');
+$noteCount=0;try{$noteCountStmt->execute([$candidate['id']]);$noteCount=(int)$noteCountStmt->fetchColumn();}catch(Throwable $e){}
+$journey=candidateJourney($candidate, $journeyRaw ?? [], $noteCount);
 
 $scorePercent = $evidenceMatch['analyzed'] ? (int)$evidenceMatch['score'] : null;
 $scoreBreakdown = $evidenceMatch['breakdown'] ?? [];
@@ -690,6 +693,20 @@ require __DIR__.'/views/partials/header.php';
 
     <!-- Right Column: Candidate History & Activity Timeline -->
     <article class="cd2-card">
+        <?php $journeyDone=count(array_filter($journey['steps'],fn($s)=>$s['state']==='done'));$journeyNext=$journey['next'];$journeyTone=in_array($journeyNext['tone'],['warn','muted','success'],true)?$journeyNext['tone']:'';?>
+        <section class="journey">
+            <div class="journey-head"><h3>Hiring journey</h3><small><?=$journeyDone?> of <?=count($journey['steps'])?> steps</small></div>
+            <ol class="journey-steps">
+                <?php foreach($journey['steps'] as $step):?>
+                <li class="journey-step <?=htmlspecialchars($step['state'])?>">
+                    <span class="journey-dot"><?php if($step['state']==='done'):?><i class="fa-solid fa-check"></i><?php elseif($step['state']==='failed'):?><i class="fa-solid fa-xmark"></i><?php endif?></span>
+                    <span><span class="journey-label"><?=htmlspecialchars($step['label'])?></span><?php if($step['detail']!==''):?><span class="journey-detail"><?=htmlspecialchars($step['detail'])?></span><?php endif?></span>
+                    <span class="journey-date"><?=htmlspecialchars((string)($step['at']??''))?></span>
+                </li>
+                <?php endforeach?>
+            </ol>
+            <div class="journey-next <?=$journeyTone?>"><i class="fa-solid fa-circle-arrow-right" style="margin-top:2px"></i><span><strong>Next:</strong> <?=htmlspecialchars($journeyNext['text'])?><?php if(!empty($journeyNext['url'])):?> <a href="<?=htmlspecialchars($journeyNext['url'])?>">Open <i class="fa-solid fa-arrow-right"></i></a><?php endif?></span></div>
+        </section>
         <h3>
             <span><i class="fa-solid fa-clock-rotate-left" style="color:var(--primary)"></i> Application & Activity History</span>
             <small class="muted" style="font-weight:normal"><?=count($activityTimeline)?> recorded events</small>

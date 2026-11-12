@@ -880,6 +880,7 @@ $pageStyles = <<<'CSS'
   font-size: 11px;
 }
 .gap-highlight.clear { border-color: #a7f3d0; background: #ecfdf5; color: #047857; }
+/* Hiring journey stepper styles live in assets/app.css */
 .gap-highlight.old-flag { border-color: #fecaca; background: #fee2e2; color: #b91c1c; }
 
 .composition-list { display: grid; gap: 8px; }
@@ -1822,6 +1823,94 @@ function switchDrawerTab(tabName, btnEl) {
   if (targetPane) targetPane.classList.add('active');
 }
 
+// In-drawer interview outcome form. Saves through interview_outcome.php (same rules, history and
+// audit as the Interviews page); the stage change it implies is shown before saving.
+const OUTCOME_OPTIONS = [
+  ['completed', 'Interview completed (decision pending)', 'Interview'],
+  ['selected', 'Selected', 'Offer'],
+  ['rejected', 'Rejected', 'Rejected'],
+  ['no_show', 'No-show', 'Rejected'],
+  ['offer_sent', 'Offer sent', 'Offer'],
+  ['offer_accepted', 'Offer accepted', 'Offer'],
+  ['offer_declined', 'Offer declined', 'Rejected'],
+  ['hired', 'Hired / joined', 'Offer'],
+];
+function renderOutcomeForm(iv) {
+  if (!iv || !iv.invitation_id || !['confirmed', 'awaiting_confirmation'].includes(iv.status)) return '';
+  const opts = OUTCOME_OPTIONS.map(([v, l, s]) => `<option value="${v}" data-stage="${s}" ${iv.outcome === v ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  return `
+    <form class="journey-outcome" onsubmit="return saveDrawerOutcome(event, ${Number(iv.invitation_id)})">
+      <label style="font-size:11px;font-weight:700;color:var(--muted)">Record interview result${iv.outcome ? ` · current: ${esc(iv.outcome.replaceAll('_', ' '))}` : ''}</label>
+      <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+        <select name="outcome" required onchange="this.form.querySelector('.journey-outcome-stage').textContent = 'Stage will become: ' + this.selectedOptions[0].dataset.stage"
+                style="flex:1;min-width:180px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:12px">
+          <option value="" ${iv.outcome ? '' : 'selected'} disabled>Choose result…</option>${opts}
+        </select>
+        <button type="submit" class="btn btn-primary" style="font-size:12px;padding:7px 12px;border-radius:8px">Save result</button>
+      </div>
+      <textarea name="notes" maxlength="1000" rows="2" placeholder="Short note (optional, max 1000 chars)"
+                style="width:100%;margin-top:6px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:12px;resize:vertical"></textarea>
+      <small class="journey-outcome-stage" style="display:block;margin-top:4px;font-size:11px;color:var(--muted)">No email is sent. Detailed feedback goes in Timeline &amp; Notes.</small>
+    </form>`;
+}
+async function saveDrawerOutcome(event, invitationId) {
+  event.preventDefault();
+  const form = event.target, btn = form.querySelector('button[type=submit]');
+  const outcome = form.outcome.value;
+  const option = form.outcome.selectedOptions[0];
+  if (!outcome) return false;
+  if (!confirm(`Record "${option.textContent}" for this interview? The candidate will move to ${option.dataset.stage}.`)) return false;
+  btn.disabled = true;
+  try {
+    const body = new FormData();
+    body.append('csrf', CSRF_TOKEN);
+    body.append('ajax', '1');
+    body.append('invitation_id', String(invitationId));
+    body.append('outcome', outcome);
+    body.append('notes', form.notes.value.trim());
+    const res = await fetch('interview_outcome.php', { method: 'POST', body });
+    const data = await res.json().catch(() => ({ ok: false, error: 'Unexpected server response.' }));
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Could not save the interview outcome.');
+    const candidateId = currentDrawerCandidate?.id;
+    const card = candidateId ? document.querySelector(`.cand-card[data-id="${CSS.escape(candidateId)}"]`) : null;
+    const target = document.querySelector(`.kanban-dropzone[data-stage="${CSS.escape(data.stage)}"]`);
+    if (card && target && card.dataset.stage !== data.stage) {
+      target.prepend(card);
+      card.dataset.stage = data.stage;
+      updateColumnCounts();
+    }
+    showToast(`✓ Interview result saved · stage: ${data.stage} (no email sent)`);
+    if (candidateId) openCandidateDrawer(candidateId);
+  } catch (err) {
+    alert('Error: ' + err.message);
+    btn.disabled = false;
+  }
+  return false;
+}
+
+// Hiring journey stepper built server-side by candidateJourney() from recorded events only.
+function renderJourney(j) {
+  if (!j || !Array.isArray(j.steps)) return '';
+  const icon = { done: 'fa-check', failed: 'fa-xmark' };
+  const done = j.steps.filter(s => s.state === 'done').length;
+  const items = j.steps.map(s => `
+    <li class="journey-step ${esc(s.state)}">
+      <span class="journey-dot">${icon[s.state] ? `<i class="fa-solid ${icon[s.state]}"></i>` : ''}</span>
+      <span><span class="journey-label">${esc(s.label)}</span>${s.detail ? `<span class="journey-detail">${esc(s.detail)}</span>` : ''}</span>
+      <span class="journey-date">${esc(s.at || '')}</span>
+    </li>`).join('');
+  const next = j.next || {};
+  const tone = ['warn', 'muted', 'success'].includes(next.tone) ? next.tone : '';
+  const link = next.url ? ` <a href="${esc(next.url)}">Open <i class="fa-solid fa-arrow-right"></i></a>` : '';
+  return `
+    <section class="journey">
+      <div class="journey-head"><h3>Hiring journey</h3><small>${done} of ${j.steps.length} steps</small></div>
+      <ol class="journey-steps">${items}</ol>
+      ${next.text ? `<div class="journey-next ${tone}"><i class="fa-solid fa-circle-arrow-right" style="margin-top:2px"></i><span><strong>Next:</strong> ${esc(next.text)}${link}</span></div>` : ''}
+      ${renderOutcomeForm(j.interview)}
+    </section>`;
+}
+
 function renderDrawerOverview(c) {
   const oldFlag = c.old ? `
     <div class="gap-highlight old-flag" style="margin-bottom:14px;">
@@ -1836,6 +1925,7 @@ function renderDrawerOverview(c) {
   const expYears = c.months ? (Math.round(c.months / 12 * 10) / 10 + ' years') : 'Uncertain';
 
   document.getElementById('paneOverview').innerHTML = `
+    ${renderJourney(c.journey)}
     ${oldFlag}
     <div class="detail-grid">
       <div class="detail-card">

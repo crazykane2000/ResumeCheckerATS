@@ -70,7 +70,8 @@ try {
         $notes = $notesStmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Fetch System Activity Timeline
-        $timelineEvents = candidateActivityTimeline($pdo, $cand);
+        $timelineEvents = candidateActivityTimeline($pdo, $cand, $journeyRaw);
+        $journey = candidateJourney($cand + ['source' => $cSource], $journeyRaw ?? [], count($notes));
 
         $candScore = (int)($cand['score'] ?? 0);
         $matchScore = (int)($match['score'] ?? 0);
@@ -140,7 +141,8 @@ try {
                 'resume_url' => 'resume_file.php?id=' . urlencode($cand['id']),
                 'text_url' => 'candidate_drawer_api.php?id=' . urlencode($cand['id']),
                 'notes' => $notes,
-                'activity' => $timelineEvents
+                'activity' => $timelineEvents,
+                'journey' => $journey
             ]
         ]);
         exit;
