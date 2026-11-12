@@ -1,0 +1,12 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const source=fs.readFileSync('offer_letter.php','utf8');
+const labels=[{value:'Basic'},{value:'HRA'}], amounts=[{value:'600000'},{value:'600000'}];
+const elements={salaryPreview:{},salaryTotals:{},salaryWarning:{},ctcText:{value:'12 LPA'}};
+const context={Intl,Number,Math,document:{querySelectorAll:s=>s.includes('salary_label')?labels:amounts},$:id=>elements[id],escText:s=>String(s).replace(/</g,'&lt;')};vm.createContext(context);
+vm.runInContext(source.match(/function ctcRupees\(text\) \{[\s\S]*?\n\}/)[0]+'\n'+source.match(/function updateSalaryPreview\(\) \{[\s\S]*?\n\}/)[0],context);
+context.updateSalaryPreview();assert(elements.salaryWarning.textContent.includes('match'));assert(elements.salaryTotals.textContent.includes('12,00,000'));
+amounts[1].value='500000';context.updateSalaryPreview();assert(elements.salaryWarning.textContent.includes('mismatch'));
+labels[0].value='<img src=x>';context.updateSalaryPreview();assert(!elements.salaryPreview.innerHTML.includes('<img'));
+elements.ctcText.value='USD 12000';context.updateSalaryPreview();assert(elements.salaryWarning.textContent.includes('could not be read'));
+amounts[0].value='-1';context.updateSalaryPreview();assert(elements.salaryWarning.textContent.includes('valid annual'));
+console.log('PASS live totals, CTC match/mismatch, ambiguous currency, invalid values and escaped preview');

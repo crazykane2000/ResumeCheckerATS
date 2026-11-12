@@ -5,6 +5,7 @@
 require_once __DIR__ . '/lib/auth.php';
 require_once __DIR__ . '/lib/offer_letters.php';
 require_once __DIR__ . '/lib/onboarding.php';
+startAppSession();
 
 header('Cache-Control: no-store');
 header('X-Robots-Tag: noindex, nofollow');

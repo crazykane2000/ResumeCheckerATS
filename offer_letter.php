@@ -329,7 +329,7 @@ require __DIR__ . '/views/partials/header.php';
         <p class="ol-hint">Optional annexure included in portal, print and Word downloads. Total should agree with the annual CTC above.</p>
         <?php for ($si=0; $si<20; $si++): ?>
         <div class="ol-two"><input class="control" name="salary_label[]" maxlength="80" aria-label="Component <?= $si+1 ?>" placeholder="Component" value="<?= htmlspecialchars($salaryRows[$si]['label'] ?? '') ?>"><input class="control" name="salary_amount[]" type="number" min="0" max="1000000000000" step="0.01" aria-label="Annual INR amount <?= $si+1 ?>" placeholder="Annual INR" value="<?= htmlspecialchars((string)($salaryRows[$si]['annual'] ?? '')) ?>"></div>
-        <?php endfor ?></details><?php endif ?>
+        <?php endfor ?></details><section class="panel" style="padding:12px;margin-bottom:12px" aria-label="Salary annexure preview"><h3>Salary annexure preview</h3><p id="salaryTotals" aria-live="polite"></p><p id="salaryWarning" role="status"></p><div id="salaryPreview"></div></section><?php endif ?>
         <div class="rte-wrap"><?= letterPaperHtml('', $previewBrand, ['label' => OFFER_LETTER_TYPES[$defaults['letter_type']] ?? 'Letter', 'ref' => $editing ? letterReference($editing, $previewBrand) : 'Draft']) ?></div>
         <p class="ol-hint">Fields on the left fill the template. After you type in the letter, field changes no longer overwrite it; use <em>Refill from template</em> to start over.</p>
     </article>
@@ -473,6 +473,27 @@ function beforeSubmit(event) {
   }
   return true;
 }
+function updateSalaryPreview() {
+  const out = $('salaryPreview'); if (!out) return;
+  const labels = [...document.querySelectorAll('[name="salary_label[]"]')];
+  const amounts = [...document.querySelectorAll('[name="salary_amount[]"]')];
+  const money = n => new Intl.NumberFormat('en-IN', {style:'currency', currency:'INR', maximumFractionDigits:2}).format(n);
+  let total = 0, invalid = false;
+  const rows = labels.map((input, i) => {
+    const label = input.value.trim(), raw = amounts[i].value;
+    if (!label && !raw) return '';
+    const annual = Number(raw);
+    if (!label || !raw || !Number.isFinite(annual) || annual < 0 || annual > 1e12) { invalid = true; return ''; }
+    total += annual;
+    return `<tr><th scope="row">${escText(label)}</th><td>${money(annual)}</td><td>${money(annual/12)}</td></tr>`;
+  }).join('');
+  $('salaryTotals').textContent = `Annual total: ${money(total)} | Monthly equivalent: ${money(total/12)}`;
+  const ctc = ctcRupees($('ctcText').value);
+  $('salaryWarning').textContent = invalid ? 'Complete each component with a name and a valid annual amount.' : !rows ? 'Add components to include a salary annexure.' : ctc === null ? 'Annual CTC could not be read. Check it against the annexure total before sending.' : Math.abs(total-ctc) > 0.01 ? `CTC mismatch: components differ from annual CTC by ${money(Math.abs(total-ctc))}. Review before sending.` : 'Salary components match the annual CTC.';
+  out.innerHTML = rows ? `<h4>Annexure A - Salary breakup</h4><table style="width:100%;text-align:left"><thead><tr><th>Component</th><th>Annual INR</th><th>Monthly INR</th></tr></thead><tbody>${rows}<tr><th>Total (CTC)</th><td>${money(total)}</td><td>${money(total/12)}</td></tr></tbody></table><p>Statutory deductions apply as per law. Monthly amounts are annual equivalents.</p>` : '';
+}
+document.querySelectorAll('[name="salary_label[]"], [name="salary_amount[]"], #ctcText').forEach(input => input.addEventListener('input', updateSalaryPreview));
+updateSalaryPreview();
 $('ctcText').addEventListener('input', showConversion); showConversion(); CANDIDATE.prevCompany = CANDIDATE.company;
 if (INITIAL_BODY) { refillTemplates(); body.innerHTML = INITIAL_BODY; edited = true; } else { refillTemplates(); }
 </script>
