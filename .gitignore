@@ -2,6 +2,9 @@
 /uploads/*
 !/uploads/.gitkeep
 !/uploads/.htaccess
+!/uploads/branding/
+/uploads/branding/*
+!/uploads/branding/.htaccess
 /u157534802_resume1.sql
 /*.sql
 

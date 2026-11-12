@@ -1,0 +1,17 @@
+Options -Indexes
+
+# Organization logos are public (page header, favicon, email templates).
+# Only plain image files are served; everything else stays denied.
+<IfModule mod_authz_core.c>
+  Require all denied
+  <FilesMatch "(?i)^[A-Za-z0-9._-]+\.(?:png|jpe?g|webp)$">
+    Require all granted
+  </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Order deny,allow
+  Deny from all
+  <FilesMatch "(?i)^[A-Za-z0-9._-]+\.(?:png|jpe?g|webp)$">
+    Allow from all
+  </FilesMatch>
+</IfModule>

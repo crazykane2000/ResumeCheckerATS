@@ -86,8 +86,10 @@ Configure environment variables using `.env.example` as a reference. Do not comm
 Start the application:
 
 ```powershell
-php -S 127.0.0.1:8001
+php -S 127.0.0.1:8001 dev_router.php
 ```
+
+`dev_router.php` mirrors `uploads/.htaccess` for the built-in server (which ignores `.htaccess`): resumes under `uploads/` are never served directly, only through the authenticated `resume_file.php` route. Only logo images in `uploads/branding/` are public.
 
 Open:
 
