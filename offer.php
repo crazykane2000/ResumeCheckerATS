@@ -13,6 +13,7 @@ $pdo = db();
 $brand = organizationBrand();
 $token = (string)($_GET['token'] ?? $_POST['token'] ?? '');
 $offer = $token !== '' ? findOfferByToken($pdo, $token) : null;
+if ($offer) $brand = entityBrand($brand, letterEntity($offer['entity_key'] ?? null));
 $notice = '';
 $error = '';
 
@@ -73,7 +74,7 @@ $logo = brandLogoDataUri($brand);
 ?><!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
 <title><?= $valid ? htmlspecialchars((OFFER_LETTER_TYPES[$offer['letter_type']] ?? 'Letter') . ' · ' . $brand['name']) : 'Link not available · ' . $orgName ?></title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
 <style>
 :root{--line:#ececf3;--text:#171820;--muted:#7b8090;--primary:#6f45ff;--primary-soft:#f0edff;--green:#18a66f;--green-soft:#ecfaf4;--amber-soft:#fff7e7;--danger:#e4697e}

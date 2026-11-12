@@ -1,0 +1,40 @@
+<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:transparent}canvas{display:block}</style></head><body>
+<!-- Regenerates assets/letterhead-map.png (dotted world map used on letterheads). Run from the repo:
+     chrome --headless=new --allow-file-access-from-files --default-background-color=00000000 --window-size=1200,750 --screenshot=assets/letterhead-map.png scripts/letterhead_map_generator.html -->
+<canvas id="out"></canvas>
+<script>
+// Source crop (world.svg user units, 1009.67 x 665.96): Americas + Atlantic + Europe/Africa, like the NonceBlox letterhead.
+const SRC = {x: 105, y: 165, w: 520, h: 325};
+const OUT = {w: 1200, h: Math.round(1200 * 325 / 520)}, STEP = 8, R = 2.35;
+const img = new Image();
+img.onload = () => {
+  const mask = document.createElement('canvas'); mask.width = OUT.w; mask.height = OUT.h;
+  const m = mask.getContext('2d');
+  m.drawImage(img, SRC.x, SRC.y, SRC.w, SRC.h, 0, 0, OUT.w, OUT.h);
+  document.getElementById('out').width = OUT.w; document.getElementById('out').height = OUT.h;
+  const data = m.getImageData(0, 0, OUT.w, OUT.h).data;
+  const c = document.getElementById('out').getContext('2d');
+  const teal = [62, 183, 160], blue = [79, 140, 214];
+  for (let y = STEP / 2; y < OUT.h; y += STEP) for (let x = STEP / 2; x < OUT.w; x += STEP) {
+    const i = (Math.round(y) * OUT.w + Math.round(x)) * 4;
+    const land = data[i + 3] > 40;
+    const t = Math.min(1, Math.max(0, (x / OUT.w) * 0.55 + (y / OUT.h) * 0.75 - 0.2));
+    const col = teal.map((v, k) => Math.round(v + (blue[k] - v) * t));
+    const fade = Math.min(1, Math.max(0.12, (x / OUT.w) * 1.6)) * Math.min(1, 0.4 + y / (OUT.h * 0.45)); // lighter towards the left and top
+    if (land) { c.fillStyle = `rgba(${col},${Math.min(1, 1.05 * fade)})`; c.beginPath(); c.arc(x, y, R, 0, 7); c.fill(); }
+    else { c.fillStyle = `rgba(150,170,195,${0.16 * fade})`; c.beginPath(); c.arc(x, y, 0.9, 0, 7); c.fill(); }
+  }
+  // Dotted connection (east coast of North America -> western Europe), as in the template.
+  c.strokeStyle = 'rgba(52,72,130,.9)'; c.lineWidth = 2.2; c.setLineDash([2, 3]);
+  const pts = [[462, 303], [705, 303], [752, 236], [838, 236]];
+  c.beginPath(); c.moveTo(...pts[0]); pts.slice(1).forEach(p => c.lineTo(...p)); c.stroke();
+  c.setLineDash([]); c.fillStyle = 'rgba(40,52,100,1)';
+  [pts[0], pts[3]].forEach(([x, y]) => { c.beginPath(); c.arc(x, y, 3, 0, 7); c.fill(); });
+  document.title = 'done';
+};
+fetch('../assets/world.svg').then(r => r.text()).then(svg => {
+  // Solid black land, no strokes, so the alpha mask is clean.
+  svg = svg.replace(/<path/g, '<path fill="#000" stroke="none"');
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+});
+</script></body></html>

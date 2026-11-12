@@ -81,6 +81,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'policy_ids_json' => json_encode($policySnapshot((array)($_POST['policy_ids'] ?? []))),
                 'email_subject' => mb_substr(trim((string)($_POST['email_subject'] ?? '')), 0, 255) ?: null,
             ];
+            $entityKey = (string)($_POST['entity_key'] ?? '');
+            if (!isset(letterEntities()[$entityKey])) $entityKey = (string)array_key_first(letterEntities());
+            if (offerEntityColumnExists($pdo)) $fields['entity_key'] = $entityKey;
             if ($offerId > 0) {
                 $existing = $loadOffer($offerId);
                 if (!$existing || $existing['status'] !== 'draft') throw new RuntimeException('Only draft letters can be edited. Create a new letter instead.');
@@ -113,8 +116,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             [$token, $hash] = newOfferToken();
             $link = offerPublicLink($token);
-            $subject = $offer['email_subject'] ?: (($offer['letter_type'] === 'offer_letter' ? 'Your offer from ' : 'Your appointment letter from ') . $brand['name'] . ' — ' . $offer['designation']);
-            $html = offerEmailHtml($offer, $candidate, $brand, $link);
+            $letterBrand = entityBrand($brand, letterEntity($offer['entity_key'] ?? null));
+            $subject = $offer['email_subject'] ?: (($offer['letter_type'] === 'offer_letter' ? 'Your offer from ' : 'Your appointment letter from ') . $letterBrand['name'] . ' — ' . $offer['designation']);
+            $html = offerEmailHtml($offer, $candidate, $letterBrand, $link);
             $result = sendLifecycleEmail($pdo, [
                 'recipient_email' => $to, 'candidate_id' => $candidateId, 'stage' => 'Offer',
                 'template_key' => $offer['letter_type'], 'subject' => $subject, 'html' => $html, 'user_id' => (int)$user['id'],
@@ -195,6 +199,9 @@ $defaults = $editing ?: [
 if (!$editing && $wantType === 'hiring_letter' && $acceptedOffer) {
     foreach (['designation', 'ctc_text', 'joining_date', 'location', 'reporting_to', 'signatory_name', 'signatory_title'] as $k) if (!empty($acceptedOffer[$k])) $defaults[$k] = $acceptedOffer[$k];
 }
+$selectedEntity = (string)($editing['entity_key'] ?? '') ?: (string)($acceptedOffer['entity_key'] ?? '');
+if (!isset(letterEntities()[$selectedEntity])) $selectedEntity = (string)array_key_first(letterEntities());
+$previewBrand = entityBrand($brand, letterEntity($selectedEntity));
 $selectedPolicies = $editing ? array_column(json_decode((string)$editing['policy_ids_json'], true) ?: [], 'id') : array_column($byType['policy'], 'id');
 $stated = isset($candidate['expected_ctc']) && $candidate['expected_ctc'] !== null ? '₹' . rtrim(rtrim(number_format((float)$candidate['expected_ctc'], 2), '0'), '.') . ' LPA expected' : '';
 $isLocal = in_array($_SERVER['HTTP_HOST'] ?? '', ['127.0.0.1', 'localhost'], true) || str_starts_with((string)($_SERVER['HTTP_HOST'] ?? ''), '127.0.0.1:') || str_starts_with((string)($_SERVER['HTTP_HOST'] ?? ''), 'localhost:');
@@ -203,14 +210,14 @@ $fmtDate = static fn(?string $d): string => ($d && strtotime($d)) ? date('d M Y'
 
 $activePage = 'employees';
 $pageTitle = 'Offer letter · ' . $candidate['name'];
-$pageStyles = '<style>' . letterPaperCss() . '
+$pageStyles = '<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet"><style>' . letterPaperCss() . '
 .ol-grid{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:12px;margin-top:12px;align-items:start}
 .ol-form{padding:16px}.ol-form label{display:block;font-size:11px;font-weight:600;color:var(--muted);margin:10px 0 5px}
 .ol-two{display:grid;grid-template-columns:1fr 1fr;gap:8px}.ol-hint{font-size:11px;color:var(--muted);margin-top:4px}
 .ol-policies{display:grid;gap:4px;margin-top:4px}.ol-policies label{display:flex;gap:6px;align-items:center;margin:0;font-weight:500;color:var(--text);font-size:12px}
 .ol-editor{padding:16px}.rte-toolbar{display:flex;flex-wrap:wrap;gap:4px;padding:6px;border:1px solid var(--line);border-bottom:0;border-radius:8px 8px 0 0;background:var(--soft)}
 .rte-toolbar button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer}
-.rte-wrap .letter-paper{border-radius:0 0 8px 8px;max-width:none;box-shadow:none}.rte-wrap .letter-inner{padding:28px 32px 22px}.rte-wrap .letter-foot{margin:0 32px}.rte-wrap .letter-body{outline:none;min-height:380px}
+.rte-wrap .letter-paper{border-radius:0 0 8px 8px;max-width:none;box-shadow:none;min-height:0}.rte-wrap .letter-body{outline:none;min-height:380px}
 .ol-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;align-items:center}
 .btn-ghost{background:#fff;border:1px solid var(--line);color:var(--text)}
 .ol-flash{padding:10px 12px;border-radius:8px;font-size:12px;margin-top:10px}.ol-flash.ok{background:var(--green-soft);color:#0f7a52}.ol-flash.err{background:#fff0f2;color:#b4233c}.ol-flash.warn{background:var(--amber-soft);color:#8c610d}
@@ -252,6 +259,9 @@ require __DIR__ . '/views/partials/header.php';
 <section class="ol-grid">
     <article class="panel ol-form">
         <h2 style="font-size:14px;margin:0"><?= $editing ? 'Edit draft #' . (int)$editing['id'] : 'New letter' ?></h2>
+        <label for="entityKey">Issuing company (letterhead)</label>
+        <select class="control" id="entityKey" name="entity_key" onchange="applyEntity()"><?php foreach (letterEntities() as $ek => $ent): ?><option value="<?= htmlspecialchars($ek) ?>" <?= $ek === $selectedEntity ? 'selected' : '' ?>><?= htmlspecialchars($ent['name']) ?></option><?php endforeach ?></select>
+        <?php if (!offerEntityColumnExists($pdo)): ?><p class="ol-hint" style="color:#8c610d">Company choice is not saved per letter until migration 20261112_offer_letter_entity.sql is applied; letters use <?= htmlspecialchars(letterEntity(null)['name']) ?>.</p><?php endif ?>
         <label for="letterType">Letter type</label>
         <select class="control" id="letterType" name="letter_type" onchange="refillTemplates()"><?php foreach (OFFER_LETTER_TYPES as $k => $label): ?><option value="<?= $k ?>" <?= $defaults['letter_type'] === $k ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option><?php endforeach ?></select>
         <label for="templateId">Template</label>
@@ -290,7 +300,7 @@ require __DIR__ . '/views/partials/header.php';
             <button type="button" onclick="fmt('insertUnorderedList')"><i class="fa-solid fa-list-ul"></i></button><button type="button" onclick="fmt('insertOrderedList')"><i class="fa-solid fa-list-ol"></i></button>
             <button type="button" onclick="fmt('removeFormat')"><i class="fa-solid fa-text-slash"></i></button>
         </div>
-        <div class="rte-wrap"><?= letterPaperHtml('', $brand, ['label' => OFFER_LETTER_TYPES[$defaults['letter_type']] ?? 'Letter', 'ref' => $editing ? letterReference($editing, $brand) : 'Draft']) ?></div>
+        <div class="rte-wrap"><?= letterPaperHtml('', $previewBrand, ['label' => OFFER_LETTER_TYPES[$defaults['letter_type']] ?? 'Letter', 'ref' => $editing ? letterReference($editing, $previewBrand) : 'Draft']) ?></div>
         <p class="ol-hint">Fields on the left fill the template. After you type in the letter, field changes no longer overwrite it; use <em>Refill from template</em> to start over.</p>
     </article>
 </section>
@@ -335,7 +345,8 @@ require __DIR__ . '/views/partials/header.php';
 
 <script>
 const TEMPLATES = <?= json_encode($byType, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-const CANDIDATE = <?= json_encode(['name' => $candidate['name'], 'company' => $brand['name']], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+const CANDIDATE = <?= json_encode(['name' => $candidate['name'], 'company' => $previewBrand['name']], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+const ENTITIES = <?= json_encode(array_map(static fn($e) => ['name' => $e['name'], 'bold' => $e['wordmark_bold'], 'light' => $e['wordmark_light'], 'lines' => letterContactLines($e)], letterEntities()), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 const INITIAL_BODY = <?= json_encode($editing ? sanitizeLetterHtml((string)$editing['body_html']) : '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 const INITIAL_TEMPLATE = <?= json_encode((int)($defaults['template_id'] ?? 0)) ?>;
 const FX = <?= json_encode(fxRates(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
@@ -385,6 +396,17 @@ function vars() {
     signatory_name: $('signatoryName').value, signatory_title: $('signatoryTitle').value,
   };
 }
+function applyEntity() {
+  const e = ENTITIES[$('entityKey').value]; if (!e) return;
+  CANDIDATE.company = e.name;
+  const word = document.querySelector('.rte-wrap .lh-word');
+  if (word) word.innerHTML = (e.bold || e.light) ? `<b>${escText(e.bold)}</b><span>${escText(e.light)}</span>` : `<b>${escText(e.name)}</b>`;
+  const contact = document.querySelector('.rte-wrap .lh-contact');
+  if (contact) contact.innerHTML = e.lines.map(escText).join('<br>');
+  if (!edited) applyTemplate(false);
+  else if (CANDIDATE.prevCompany && CANDIDATE.prevCompany !== e.name && confirm(`Replace "${CANDIDATE.prevCompany}" with "${e.name}" in the letter text?`)) body.innerHTML = body.innerHTML.split(escText(CANDIDATE.prevCompany)).join(escText(e.name));
+  CANDIDATE.prevCompany = e.name;
+}
 function refillTemplates() {
   const list = TEMPLATES[$('letterType').value] || [];
   $('templateId').innerHTML = list.map(t => `<option value="${t.id}">${escText(t.name)}</option>`).join('') || '<option value="">No templates — add one in Letters &amp; Policies</option>';
@@ -412,7 +434,7 @@ function beforeSubmit(event) {
   }
   return true;
 }
-$('ctcText').addEventListener('input', showConversion); showConversion();
+$('ctcText').addEventListener('input', showConversion); showConversion(); CANDIDATE.prevCompany = CANDIDATE.company;
 if (INITIAL_BODY) { refillTemplates(); body.innerHTML = INITIAL_BODY; edited = true; } else { refillTemplates(); }
 </script>
 <?php require __DIR__ . '/views/partials/footer.php'; ?>

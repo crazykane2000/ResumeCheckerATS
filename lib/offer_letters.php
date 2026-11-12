@@ -405,74 +405,183 @@ function brandLogoDataUri(array $brand): ?string
     return 'data:image/' . $logo['ext'] . ';base64,' . base64_encode($logo['data']);
 }
 
-/** Letter-paper CSS shared by the portal, recruiter preview and print/PDF view. */
+// ---------------------------------------------------------------------------
+// Issuing companies (letterhead entities). Same logo, separate legal/contact
+// details, editable on documents.php and applied to every document rendered.
+// ---------------------------------------------------------------------------
+
+const LETTERHEAD_MAP_FILE = __DIR__ . '/../assets/letterhead-map.png';
+
+function defaultLetterEntities(): array
+{
+    return [
+        'nonceblox' => ['key' => 'nonceblox', 'name' => 'NonceBlox', 'wordmark_bold' => 'Nonce', 'wordmark_light' => 'Blox', 'address' => '', 'po_box' => '', 'website' => 'www.nonceblox.com', 'email' => 'info@nonceblox.com', 'phone' => ''],
+        'noncelabs' => ['key' => 'noncelabs', 'name' => 'Nonce Labs', 'wordmark_bold' => 'Nonce', 'wordmark_light' => 'Labs', 'address' => 'R320 - OF13, Um Hurair Second, Dubai, UAE', 'po_box' => '624699', 'website' => 'www.noncelabs.com', 'email' => 'info@noncelabs.com', 'phone' => '0523549180'],
+    ];
+}
+
+const LETTER_ENTITY_FIELDS = ['name' => 160, 'wordmark_bold' => 40, 'wordmark_light' => 40, 'address' => 255, 'po_box' => 40, 'website' => 120, 'email' => 160, 'phone' => 40];
+
+/** @return array<string, array> entities keyed by key, in display order */
+function letterEntities(bool $fresh = false): array
+{
+    static $cache = null;
+    if ($cache !== null && !$fresh) return $cache;
+    $saved = [];
+    try { $saved = integrationConfig('letterhead_entities')['entities'] ?? []; } catch (Throwable $e) {}
+    $list = [];
+    foreach ((is_array($saved) && $saved ? $saved : defaultLetterEntities()) as $e) {
+        $key = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($e['key'] ?? '')));
+        if ($key === '' || trim((string)($e['name'] ?? '')) === '') continue;
+        $clean = ['key' => $key];
+        foreach (LETTER_ENTITY_FIELDS as $f => $max) $clean[$f] = mb_substr(trim((string)($e[$f] ?? '')), 0, $max);
+        $list[$key] = $clean;
+    }
+    return $cache = $list ?: defaultLetterEntities();
+}
+
+function letterEntity(?string $key): array
+{
+    $all = letterEntities();
+    return $all[(string)$key] ?? reset($all);
+}
+
+function saveLetterEntities(array $entities): void
+{
+    saveIntegration('letterhead_entities', 'configured', ['entities' => array_values($entities)]);
+    letterEntities(true);
+}
+
+/** Organisation brand (logo, domain) with the issuing company's name and details. */
+function entityBrand(array $brand, array $entity): array
+{
+    return array_merge($brand, ['name' => $entity['name'], 'entity' => $entity]);
+}
+
+/** Footer contact lines, e.g. ["Address: R320 … · P.O. Box 624699", "www.noncelabs.com | info@noncelabs.com | Ph: 0523549180"]. */
+function letterContactLines(array $entity): array
+{
+    $lines = [];
+    $addr = trim($entity['address'] ?? '');
+    $po = trim($entity['po_box'] ?? '');
+    if ($addr !== '' || $po !== '') $lines[] = trim(($addr !== '' ? 'Address: ' . $addr : '') . ($po !== '' ? ($addr !== '' ? ' · ' : '') . 'P.O. Box ' . $po : ''));
+    $contact = array_values(array_filter([trim($entity['website'] ?? ''), trim($entity['email'] ?? ''), trim($entity['phone'] ?? '') !== '' ? 'Ph: ' . trim($entity['phone']) : '']));
+    if ($contact) $lines[] = implode('  |  ', $contact);
+    return $lines;
+}
+
+/** Whether offer_letters has the entity_key column (migration 20261112_offer_letter_entity). */
+function offerEntityColumnExists(PDO $pdo): bool
+{
+    static $exists = null;
+    if ($exists !== null) return $exists;
+    try { $exists = (bool)$pdo->query("SHOW COLUMNS FROM offer_letters LIKE 'entity_key'")->fetch(); } catch (Throwable $e) { $exists = false; }
+    return $exists;
+}
+
+function letterheadMapDataUri(): ?string
+{
+    static $uri = false;
+    if ($uri === false) $uri = is_file(LETTERHEAD_MAP_FILE) ? 'data:image/png;base64,' . base64_encode((string)file_get_contents(LETTERHEAD_MAP_FILE)) : null;
+    return $uri;
+}
+
+/**
+ * Letterhead CSS (NonceBlox design): logo + wordmark top-left, document label and
+ * reference top-right, dotted world map bottom-right with contact details bottom-left.
+ * On screen the letter is one A4-proportioned sheet; in print the letterhead and the
+ * map/footer repeat on every page (fixed elements + table header/footer spacers).
+ */
 function letterPaperCss(): string
 {
     return <<<'CSS'
-.letter-paper{position:relative;background:#fff;color:#2a2d3a;max-width:800px;margin:0 auto;padding:0;border:1px solid #ebe8f7;border-radius:12px;box-shadow:0 24px 60px rgba(40,30,90,.08);font:13.5px/1.75 Inter,"Segoe UI",Arial,sans-serif;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.letter-accent{height:6px;background:linear-gradient(90deg,#6f45ff 0%,#8f6bff 55%,#2ec4a0 100%)}
-.letter-inner{padding:40px 56px 30px}
-.letter-head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;padding-bottom:22px;margin-bottom:28px;border-bottom:1px solid #ecebf3}
-.letter-brand{display:flex;align-items:center;gap:14px;min-width:0}
-.letter-brand img{height:52px;width:auto;max-width:150px;object-fit:contain}
-.letter-brand strong{display:block;font-size:19px;letter-spacing:-.01em;color:#16151f;line-height:1.2}
-.letter-brand small{display:block;color:#8a8ea0;font-size:12px;margin-top:2px}
-.letter-doc{text-align:right;white-space:nowrap}
-.letter-doc span{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6f45ff;background:#f3f0ff;border:1px solid #e4dcff;border-radius:6px;padding:5px 9px}
-.letter-doc small{display:block;margin-top:8px;color:#8a8ea0;font-size:11px;letter-spacing:.02em}
-.letter-body>p:first-child{color:#8a8ea0;font-size:12.5px;margin-bottom:14px}
-.letter-body h2{font-size:23px;line-height:1.3;letter-spacing:-.015em;margin:22px 0 18px;color:#16151f;font-weight:700}
-.letter-body h2::after{content:"";display:block;width:44px;height:3px;border-radius:3px;margin-top:12px;background:linear-gradient(90deg,#6f45ff,#2ec4a0)}
-.letter-body h3{font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin:26px 0 10px;color:#6f45ff;font-weight:700}
-.letter-body h4{font-size:13.5px;margin:18px 0 6px;color:#16151f}
-.letter-body p{margin:0 0 12px}.letter-body strong{color:#16151f;font-weight:600}
-.letter-body ul,.letter-body ol{margin:0 0 14px 4px;padding-left:18px}.letter-body li{margin:0 0 6px;padding-left:4px}.letter-body li::marker{color:#6f45ff}
+.letter-paper{position:relative;background:#fff;color:#2a2d3a;max-width:794px;min-height:1123px;margin:0 auto;padding:0 0 300px;border:1px solid #ebe8f7;border-radius:10px;box-shadow:0 24px 60px rgba(40,30,90,.08);font:13px/1.72 Inter,"Segoe UI",Arial,sans-serif;overflow:hidden;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.lh-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:38px 52px 0}
+.lh-logo{display:flex;align-items:center;gap:10px;min-width:0}
+.lh-logo img{height:44px;width:auto;max-width:120px;object-fit:contain}
+.lh-word{font-family:Montserrat,Inter,Arial,sans-serif;font-size:27px;line-height:1;color:#3b3b3e;letter-spacing:-.01em;white-space:nowrap}
+.lh-word b{font-weight:700}.lh-word span{font-weight:400}
+.letter-doc{text-align:right;white-space:nowrap;padding-top:4px}
+.letter-doc span{display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#6f45ff}
+.letter-doc small{display:block;margin-top:4px;color:#9a9db0;font-size:10.5px;letter-spacing:.02em}
+.lh-flow{width:100%;border-collapse:collapse;border:0}
+.lh-flow>thead>tr>td,.lh-flow>tfoot>tr>td{padding:0;border:0}
+.lh-flow>tbody>tr>td{padding:30px 52px 0;border:0;vertical-align:top}
+.lh-sp-top,.lh-sp-bottom{height:0}
+.lh-foot{position:absolute;left:0;right:0;bottom:0;height:300px;pointer-events:none}
+.lh-map{position:absolute;right:0;bottom:0;width:68%;height:auto;display:block}
+.lh-contact{position:absolute;left:52px;bottom:40px;max-width:52%;font-size:11px;line-height:1.65;color:#2f3240}
+.letter-body>p:first-child{color:#8a8ea0;font-size:12px;margin-bottom:12px}
+.letter-body h2{font-size:21px;line-height:1.3;letter-spacing:-.015em;margin:18px 0 16px;color:#16151f;font-weight:700}
+.letter-body h2::after{content:"";display:block;width:40px;height:3px;border-radius:3px;margin-top:10px;background:linear-gradient(90deg,#6f45ff,#3eb7a0)}
+.letter-body h3{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;margin:22px 0 8px;color:#6f45ff;font-weight:700}
+.letter-body h4{font-size:13px;margin:16px 0 6px;color:#16151f}
+.letter-body p{margin:0 0 11px}.letter-body strong{color:#16151f;font-weight:600}
+.letter-body ul,.letter-body ol{margin:0 0 12px 4px;padding-left:18px}.letter-body li{margin:0 0 5px;padding-left:4px}.letter-body li::marker{color:#6f45ff}
 .letter-body a{color:#5b34ef}
-.letter-body table{width:100%;border-collapse:separate;border-spacing:0;margin:4px 0 20px;border:1px solid #e8e4fa;border-radius:10px;overflow:hidden}
-.letter-body th,.letter-body td{padding:11px 16px;text-align:left;vertical-align:top;border-bottom:1px solid #f0edfa}
+.letter-body table{width:100%;border-collapse:separate;border-spacing:0;margin:4px 0 18px;border:1px solid #e8e4fa;border-radius:10px;overflow:hidden;background:#fff}
+.letter-body th,.letter-body td{padding:10px 15px;text-align:left;vertical-align:top;border-bottom:1px solid #f0edfa}
 .letter-body tr:last-child th,.letter-body tr:last-child td{border-bottom:0}
-.letter-body th{width:36%;background:#faf9ff;color:#6b6f82;font-weight:500;font-size:12.5px}
-.letter-body td{color:#16151f;font-weight:600}.letter-body td em{display:block;margin-top:3px;font-style:normal;font-weight:400;font-size:11.5px;color:#8a8ea0}.letter-body td br:has(+em){display:none}
-.letter-body hr{border:0;border-top:1px solid #ecebf3;margin:20px 0}
-.letter-body>p:last-child{margin-top:28px;padding-top:12px;border-top:1px solid #d9d6e8;min-width:240px;display:inline-block}
-.letter-body blockquote{margin:0 0 14px;padding:10px 14px;border-left:3px solid #6f45ff;background:#faf9ff;border-radius:0 8px 8px 0}
-.letter-foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 56px;padding:14px 0 22px;border-top:1px solid #ecebf3;color:#9a9db0;font-size:10.5px;letter-spacing:.04em}
-.letter-foot b{color:#6f45ff;font-weight:700;text-transform:uppercase;letter-spacing:.12em}
-@media print{body{background:#fff!important;padding:0!important}.no-print{display:none!important}.letter-paper{border:0;border-radius:0;box-shadow:none;max-width:none}.letter-inner{padding:26px 6px 18px}.letter-foot{margin:0 6px}@page{size:A4;margin:12mm 14mm}}
-@media (max-width:640px){.letter-inner{padding:26px 20px 20px}.letter-foot{margin:0 20px}.letter-head{flex-direction:column}.letter-doc{text-align:left}.letter-body h2{font-size:20px}}
+.letter-body th{width:36%;background:#faf9ff;color:#6b6f82;font-weight:500;font-size:12px}
+.letter-body td{color:#16151f;font-weight:600}.letter-body td em{display:block;margin-top:3px;font-style:normal;font-weight:400;font-size:11px;color:#8a8ea0}.letter-body td br:has(+em){display:none}
+.letter-body hr{border:0;border-top:1px solid #ecebf3;margin:18px 0}
+.letter-body>p:last-child{margin-top:26px;padding-top:10px;border-top:1px solid #d9d6e8;min-width:220px;display:inline-block}
+.letter-body blockquote{margin:0 0 12px;padding:9px 13px;border-left:3px solid #6f45ff;background:#faf9ff;border-radius:0 8px 8px 0}
+@media print{
+  @page{size:A4;margin:0}
+  html,body{background:#fff!important;padding:0!important;margin:0!important}
+  .no-print{display:none!important}
+  .letter-paper{border:0;border-radius:0;box-shadow:none;max-width:none;min-height:0;padding:0;overflow:visible;font-size:11.6px;line-height:1.62}
+  .letter-body h2{font-size:19px;margin:10px 0 12px}.letter-body h3{margin:16px 0 6px}.letter-body p{margin:0 0 8px}.letter-body th,.letter-body td{padding:7px 13px}.letter-body>p:last-child{margin-top:16px}
+  .lh-head{position:fixed;top:0;left:0;right:0;padding:12mm 16mm 0}
+  .lh-foot{position:fixed;left:0;right:0;bottom:0;height:88mm}
+  .lh-contact{left:16mm;bottom:12mm}
+  .lh-sp-top{height:30mm}.lh-sp-bottom{height:64mm}
+  .lh-flow>tbody>tr>td{padding:0 16mm}
+  .letter-body h2,.letter-body h3{break-after:avoid}.letter-body table,.letter-body li{break-inside:avoid}
+}
+@media (max-width:640px){.lh-head{padding:24px 20px 0;flex-direction:column}.letter-doc{text-align:left}.lh-flow>tbody>tr>td{padding:22px 20px 0}.lh-contact{left:20px;max-width:70%}.lh-word{font-size:22px}.letter-body h2{font-size:19px}}
 CSS;
 }
 
 /** Reference number shown on letters, e.g. NON/OL/2026/0001. */
 function letterReference(array $offer, array $brand): string
 {
-    $prefix = strtoupper(substr(preg_replace('/[^A-Za-z]/', '', (string)($brand['name'] ?? '')), 0, 3)) ?: 'REF';
+    // Company initials from the wordmark (NonceBlox -> NB, Nonce Labs -> NL), else the first letters of the name.
+    $entity = $brand['entity'] ?? null;
+    $initials = $entity ? strtoupper(substr(preg_replace('/[^A-Za-z]/', '', (string)$entity['wordmark_bold']), 0, 1) . substr(preg_replace('/[^A-Za-z]/', '', (string)$entity['wordmark_light']), 0, 1)) : '';
+    $prefix = strlen($initials) === 2 ? $initials : (strtoupper(substr(preg_replace('/[^A-Za-z]/', '', (string)($brand['name'] ?? '')), 0, 3)) ?: 'REF');
     $type = ($offer['letter_type'] ?? 'offer_letter') === 'hiring_letter' ? 'AL' : 'OL';
     $year = !empty($offer['created_at']) && strtotime($offer['created_at']) ? date('Y', strtotime($offer['created_at'])) : date('Y');
     return $prefix . '/' . $type . '/' . $year . '/' . str_pad((string)(int)($offer['id'] ?? 0), 4, '0', STR_PAD_LEFT);
 }
 
 /**
- * The letter as a branded sheet: accent bar, letterhead (logo, organisation, document
- * label and reference), rendered body and a confidentiality footer.
+ * The letter on the company letterhead.
+ * $brand may carry an 'entity' (see entityBrand()); otherwise the first entity is used.
  *
  * @param array{label?:string, ref?:string} $meta
  */
 function letterPaperHtml(string $bodyHtml, array $brand, array $meta = []): string
 {
     $e = static fn($v): string => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
-    $name = $e($brand['name'] ?? '');
-    $domain = $e($brand['domain'] ?? '');
+    $entity = $brand['entity'] ?? letterEntity(null);
     $logo = brandLogoDataUri($brand);
-    $label = $e($meta['label'] ?? 'Letter');
+    $bold = trim($entity['wordmark_bold'] ?? '');
+    $light = trim($entity['wordmark_light'] ?? '');
+    $word = ($bold === '' && $light === '') ? '<b>' . $e($entity['name']) . '</b>' : '<b>' . $e($bold) . '</b><span>' . $e($light) . '</span>';
     $ref = trim((string)($meta['ref'] ?? ''));
-    return '<article class="letter-paper"><div class="letter-accent"></div><div class="letter-inner">'
-        . '<header class="letter-head"><div class="letter-brand">' . ($logo ? '<img src="' . $logo . '" alt="' . $name . ' logo">' : '')
-        . '<div><strong>' . $name . '</strong>' . ($domain ? '<small>' . $domain . '</small>' : '') . '</div></div>'
-        . '<div class="letter-doc"><span>' . $label . '</span>' . ($ref !== '' ? '<small>Ref. ' . $e($ref) . '</small>' : '') . '</div></header>'
-        . '<div class="letter-body">' . $bodyHtml . '</div></div>'
-        . '<footer class="letter-foot"><span><b>Private &amp; Confidential</b></span><span>' . $name . ($domain ? ' · ' . $domain : '') . '</span></footer></article>';
+    $map = letterheadMapDataUri();
+    $contact = implode('<br>', array_map($e, letterContactLines($entity)));
+    return '<article class="letter-paper" data-entity="' . $e($entity['key']) . '">'
+        . '<header class="lh-head"><div class="lh-logo">' . ($logo ? '<img src="' . $logo . '" alt="">' : '') . '<span class="lh-word">' . $word . '</span></div>'
+        . '<div class="letter-doc"><span>' . $e($meta['label'] ?? 'Letter') . '</span>' . ($ref !== '' ? '<small>Ref. ' . $e($ref) . '</small>' : '') . '<small>Private &amp; Confidential</small></div></header>'
+        . '<table class="lh-flow" role="presentation"><thead><tr><td><div class="lh-sp-top"></div></td></tr></thead>'
+        . '<tbody><tr><td><div class="letter-body">' . $bodyHtml . '</div></td></tr></tbody>'
+        . '<tfoot><tr><td><div class="lh-sp-bottom"></div></td></tr></tfoot></table>'
+        . '<footer class="lh-foot">' . ($map ? '<img class="lh-map" src="' . $map . '" alt="">' : '') . '<div class="lh-contact">' . $contact . '</div></footer></article>';
 }
+
 
 /** Branded email that links to the offer portal (the mail transports do not support attachments). */
 function offerEmailHtml(array $offer, array $candidate, array $brand, string $link): string
@@ -501,7 +610,7 @@ function offerEmailHtml(array $offer, array $candidate, array $brand, string $li
         . '<p style="margin:0 0 22px"><a href="' . $e($link) . '" style="display:inline-block;background:#6f45ff;color:#ffffff;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:8px">' . $cta . '</a></p>'
         . '<p style="margin:0 0 6px;font-size:13px;color:#4b5060">On that page you can download the letter as PDF or Word and read the company policies.</p>'
         . '<p style="margin:0 0 20px;font-size:12px;color:#7b8090">This link is personal to you. Please do not forward it.</p>'
-        . '</td></tr><tr><td style="padding:14px 28px;border-top:1px solid #ececf3;font-size:12px;color:#7b8090">' . $e($brand['name']) . (!empty($brand['domain']) ? ' · ' . $e($brand['domain']) : '') . '</td></tr>'
+        . '</td></tr><tr><td style="padding:14px 28px;border-top:1px solid #ececf3;font-size:12px;line-height:1.6;color:#7b8090"><strong style="color:#3b3b3e">' . $e($brand['name']) . '</strong><br>' . implode('<br>', array_map($e, letterContactLines($brand['entity'] ?? letterEntity(null)))) . '</td></tr>'
         . '</table></td></tr></table></body></html>';
 }
 
@@ -645,10 +754,20 @@ function docxBlocks(DOMNode $node): string
     return $xml;
 }
 
+/** DrawingML picture element shared by inline (logo) and anchored (map) images. */
+function docxPicture(string $rId, int $cx, int $cy, int $id, string $name): string
+{
+    return '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+        . '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="' . $id . '" name="' . docxEscape($name) . '"/><pic:cNvPicPr/></pic:nvPicPr>'
+        . '<pic:blipFill><a:blip r:embed="' . $rId . '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+        . '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' . $cx . '" cy="' . $cy . '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>';
+}
+
 /**
- * Build a .docx (binary string) matching the web letter: accent rule, two-column
- * letterhead (logo + organisation | document label + reference), body, and a
- * "Private & Confidential" footer on every page.
+ * Build a .docx (binary string) on the company letterhead, matching the web/PDF letter:
+ * Word header = logo + wordmark (left), document label / reference (right);
+ * Word footer = contact details with the dotted world map anchored behind the text at the
+ * bottom-right of the page. Header and footer repeat on every page.
  *
  * @param array{label?:string, ref?:string} $meta
  */
@@ -661,79 +780,97 @@ function buildLetterDocx(string $bodyHtml, array $brand, string $title, array $m
     libxml_use_internal_errors($prev);
     $root = $doc->getElementById('__root') ?? $doc;
 
-    $logo = brandLogoForLetters($brand);
-    $logoXml = '';
-    $rels = '';
-    $media = null;
-    if ($logo) {
-        $ext = $logo['ext'];
-        $heightEmu = (int)(0.55 * 914400);
-        $widthEmu = (int)min(2.2 * 914400, $heightEmu * ($logo['width'] / max(1, $logo['height'])));
-        $media = ['name' => 'logo.' . $ext, 'data' => $logo['data'], 'ext' => $ext];
-        $rels = '<Relationship Id="rIdLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/' . $media['name'] . '"/>';
-        $logoXml = '<w:p><w:pPr><w:spacing w:after="0"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' . $widthEmu . '" cy="' . $heightEmu . '"/><wp:docPr id="1" name="Logo"/>'
-            . '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
-            . '<pic:nvPicPr><pic:cNvPr id="0" name="' . $media['name'] . '"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdLogo"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
-            . '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' . $widthEmu . '" cy="' . $heightEmu . '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>';
-    }
-    $org = trim((string)($brand['name'] ?? ''));
-    $domain = trim((string)($brand['domain'] ?? ''));
+    $entity = $brand['entity'] ?? letterEntity(null);
+    $ns = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"';
+    $imageRel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image';
+    $files = [];
+    $types = ['png' => true];
     $label = trim((string)($meta['label'] ?? $title));
     $ref = trim((string)($meta['ref'] ?? ''));
-    $noBorders = '<w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders>';
-    $orgXml = docxParagraph('<w:r><w:rPr><w:b/><w:sz w:val="32"/><w:color w:val="16151F"/></w:rPr><w:t xml:space="preserve">' . docxEscape($org) . '</w:t></w:r>', '<w:spacing w:before="60" w:after="0"/>')
-        . ($domain ? docxParagraph('<w:r><w:rPr><w:sz w:val="18"/><w:color w:val="8A8EA0"/></w:rPr><w:t xml:space="preserve">' . docxEscape($domain) . '</w:t></w:r>', '<w:spacing w:after="0"/>') : '');
-    $docXml = docxParagraph('<w:r><w:rPr><w:b/><w:caps/><w:spacing w:val="30"/><w:sz w:val="16"/><w:color w:val="6F45FF"/></w:rPr><w:t xml:space="preserve">' . docxEscape($label) . '</w:t></w:r>', '<w:jc w:val="right"/><w:spacing w:before="80" w:after="40"/>')
-        . ($ref !== '' ? docxParagraph('<w:r><w:rPr><w:sz w:val="17"/><w:color w:val="8A8EA0"/></w:rPr><w:t xml:space="preserve">Ref. ' . docxEscape($ref) . '</w:t></w:r>', '<w:jc w:val="right"/><w:spacing w:after="0"/>') : '');
-    $leftCell = $logo
-        ? '<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/>' . $noBorders . '<w:tblCellMar><w:left w:w="0" w:type="dxa"/><w:right w:w="160" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tr><w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/><w:vAlign w:val="center"/></w:tcPr>' . $logoXml . '</w:tc><w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/><w:vAlign w:val="center"/></w:tcPr>' . $orgXml . '</w:tc></w:tr></w:tbl>' . docxParagraph('', '<w:spacing w:after="0"/><w:rPr><w:sz w:val="2"/></w:rPr>')
-        : $orgXml;
-    // Accent rule, then the letterhead table, then a hairline divider.
-    $headerXml = docxParagraph('', '<w:pBdr><w:top w:val="single" w:sz="36" w:space="1" w:color="6F45FF"/></w:pBdr><w:spacing w:after="160"/>')
-        . '<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/>' . $noBorders . '<w:tblCellMar><w:left w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar></w:tblPr>'
-        . '<w:tr><w:tc><w:tcPr><w:tcW w:w="3200" w:type="pct"/><w:vAlign w:val="center"/></w:tcPr>' . $leftCell . '</w:tc>'
-        . '<w:tc><w:tcPr><w:tcW w:w="1800" w:type="pct"/><w:vAlign w:val="top"/></w:tcPr>' . $docXml . '</w:tc></w:tr></w:tbl>'
-        . docxParagraph('', '<w:pBdr><w:bottom w:val="single" w:sz="4" w:space="8" w:color="ECEBF3"/></w:pBdr><w:spacing w:after="320"/>');
-    $footerXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-        . '<w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="4" w:space="8" w:color="ECEBF3"/></w:pBdr><w:tabs><w:tab w:val="right" w:pos="9638"/></w:tabs></w:pPr>'
-        . '<w:r><w:rPr><w:b/><w:caps/><w:spacing w:val="24"/><w:sz w:val="15"/><w:color w:val="6F45FF"/></w:rPr><w:t>Private &amp; Confidential</w:t></w:r>'
-        . '<w:r><w:rPr><w:sz w:val="15"/><w:color w:val="9A9DB0"/></w:rPr><w:tab/><w:t xml:space="preserve">' . docxEscape($org . ($domain ? ' · ' . $domain : '')) . '</w:t></w:r></w:p></w:ftr>';
+    $rightTab = '<w:tabs><w:tab w:val="right" w:pos="9638"/></w:tabs>';
 
-    $body = docxBlocks($root);
-    $documentXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        . '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">'
-        . '<w:body>' . $headerXml . $body
-        . '<w:sectPr><w:footerReference w:type="default" r:id="rIdFooter"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr>'
+    // ---- Header: logo + wordmark | label, reference, confidentiality ----
+    $logoRun = '';
+    $headerRels = '';
+    $logo = brandLogoForLetters($brand);
+    if ($logo) {
+        $cy = (int)(0.48 * 914400);
+        $cx = (int)($cy * ($logo['width'] / max(1, $logo['height'])));
+        $files['word/media/logo.' . $logo['ext']] = $logo['data'];
+        $types[$logo['ext']] = true;
+        $headerRels = '<Relationship Id="rIdLogo" Type="' . $imageRel . '" Target="media/logo.' . $logo['ext'] . '"/>';
+        $logoRun = '<w:r><w:rPr><w:position w:val="-10"/></w:rPr><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' . $cx . '" cy="' . $cy . '"/><wp:docPr id="1" name="Logo"/><wp:cNvGraphicFramePr/>'
+            . docxPicture('rIdLogo', $cx, $cy, 1, 'logo') . '</wp:inline></w:drawing></w:r>';
+    }
+    $font = '<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>';
+    $bold = trim($entity['wordmark_bold'] ?? '');
+    $light = trim($entity['wordmark_light'] ?? '');
+    if ($bold === '' && $light === '') $bold = (string)$entity['name'];
+    $wordmark = '<w:r><w:rPr>' . $font . '<w:b/><w:sz w:val="40"/><w:color w:val="3B3B3E"/></w:rPr><w:t xml:space="preserve"> ' . docxEscape($bold) . '</w:t></w:r>'
+        . ($light !== '' ? '<w:r><w:rPr>' . $font . '<w:sz w:val="40"/><w:color w:val="3B3B3E"/></w:rPr><w:t>' . docxEscape($light) . '</w:t></w:r>' : '');
+    $labelRun = '<w:r><w:rPr><w:b/><w:caps/><w:spacing w:val="30"/><w:sz w:val="15"/><w:color w:val="6F45FF"/></w:rPr><w:tab/><w:t xml:space="preserve">' . docxEscape($label) . '</w:t></w:r>';
+    $small = static fn(string $t): string => '<w:p><w:pPr>' . $rightTab . '<w:spacing w:after="0"/></w:pPr><w:r><w:rPr><w:sz w:val="16"/><w:color w:val="9A9DB0"/></w:rPr><w:tab/><w:t xml:space="preserve">' . docxEscape($t) . '</w:t></w:r></w:p>';
+    $headerXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ' . $ns . '>'
+        . '<w:p><w:pPr>' . $rightTab . '<w:spacing w:after="0"/></w:pPr>' . $logoRun . $wordmark . $labelRun . '</w:p>'
+        . ($ref !== '' ? $small('Ref. ' . $ref) : '') . $small('Private & Confidential')
+        . '</w:hdr>';
+
+    // ---- Footer: map behind text (bottom-right of page) + contact lines ----
+    $footerRels = '';
+    $mapRun = '';
+    if (is_file(LETTERHEAD_MAP_FILE) && ($size = @getimagesize(LETTERHEAD_MAP_FILE))) {
+        $files['word/media/map.png'] = (string)file_get_contents(LETTERHEAD_MAP_FILE);
+        $footerRels = '<Relationship Id="rIdMap" Type="' . $imageRel . '" Target="media/map.png"/>';
+        $mcx = (int)(7559040 * 0.68); // 68% of A4 width (210 mm)
+        $mcy = (int)($mcx * ($size[1] / max(1, $size[0])));
+        $mapRun = '<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251658240" behindDoc="1" locked="1" layoutInCell="1" allowOverlap="1">'
+            . '<wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="page"><wp:align>right</wp:align></wp:positionH><wp:positionV relativeFrom="page"><wp:align>bottom</wp:align></wp:positionV>'
+            . '<wp:extent cx="' . $mcx . '" cy="' . $mcy . '"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/><wp:docPr id="2" name="Letterhead map"/><wp:cNvGraphicFramePr/>'
+            . docxPicture('rIdMap', $mcx, $mcy, 2, 'map') . '</wp:anchor></w:drawing></w:r>';
+    }
+    $lines = letterContactLines($entity) ?: [''];
+    $footerParas = '';
+    foreach ($lines as $i => $line) {
+        $footerParas .= '<w:p><w:pPr><w:spacing w:after="0" w:line="300" w:lineRule="auto"/></w:pPr>' . ($i === 0 ? $mapRun : '')
+            . '<w:r><w:rPr><w:sz w:val="17"/><w:color w:val="2F3240"/></w:rPr><w:t xml:space="preserve">' . docxEscape($line) . '</w:t></w:r></w:p>';
+    }
+    $footerXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr ' . $ns . '>' . $footerParas . '</w:ftr>';
+
+    // ---- Document ----
+    $documentXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ' . $ns . '><w:body>' . docxBlocks($root)
+        . '<w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/><w:footerReference w:type="default" r:id="rIdFooter"/>'
+        . '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1900" w:right="1134" w:bottom="3600" w:left="1134" w:header="680" w:footer="700" w:gutter="0"/></w:sectPr>'
         . '</w:body></w:document>';
-    $stylesXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="22"/><w:color w:val="1F2330"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:line="276" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults></w:styles>';
+    $stylesXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="21"/><w:color w:val="1F2330"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:line="276" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults></w:styles>';
     $contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
         . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'
-        . ($media ? '<Default Extension="' . $media['ext'] . '" ContentType="image/' . $media['ext'] . '"/>' : '')
+        . implode('', array_map(static fn($ext) => '<Default Extension="' . $ext . '" ContentType="image/' . $ext . '"/>', array_keys($types)))
         . '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        . '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>'
         . '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>'
         . '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
         . '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>';
-    $rootRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
-        . '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>';
-    $docRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        . '<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
-        . '<Relationship Id="rIdFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>' . $rels . '</Relationships>';
+    $relsXml = static fn(string $inner): string => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' . $inner . '</Relationships>';
+    $org = (string)$entity['name'];
     $core = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
         . '<dc:title>' . docxEscape($title) . '</dc:title><dc:creator>' . docxEscape($org) . '</dc:creator>'
         . '<dcterms:created xsi:type="dcterms:W3CDTF">' . gmdate('Y-m-d\TH:i:s\Z') . '</dcterms:created></cp:coreProperties>';
 
-    $files = [
+    return buildZipArchive([
         '[Content_Types].xml' => $contentTypes,
-        '_rels/.rels' => $rootRels,
+        '_rels/.rels' => $relsXml('<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+            . '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'),
         'word/document.xml' => $documentXml,
         'word/styles.xml' => $stylesXml,
+        'word/header1.xml' => $headerXml,
         'word/footer1.xml' => $footerXml,
-        'word/_rels/document.xml.rels' => $docRels,
+        'word/_rels/document.xml.rels' => $relsXml('<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+            . '<Relationship Id="rIdHeader" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>'
+            . '<Relationship Id="rIdFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>'),
+        'word/_rels/header1.xml.rels' => $relsXml($headerRels),
+        'word/_rels/footer1.xml.rels' => $relsXml($footerRels),
         'docProps/core.xml' => $core,
-    ];
-    if ($media) $files['word/media/' . $media['name']] = $media['data'];
-    return buildZipArchive($files);
+    ] + $files);
 }
 
 /**

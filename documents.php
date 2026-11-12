@@ -56,6 +56,26 @@ if ($tablesReady && $_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: documents.php?' . ($returnId > 0 ? 'id=' . $returnId . '&' : '') . 'rates=1');
             exit;
         }
+        if ($action === 'save_entities') {
+            $out = [];
+            foreach ((array)($_POST['entities'] ?? []) as $row) {
+                $name = trim((string)($row['name'] ?? ''));
+                if ($name === '') continue; // blank 'add another' card
+                $key = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($row['key'] ?? ''))) ?: (preg_replace('/[^a-z0-9]+/', '', strtolower($name)) ?: 'company');
+                while (isset($out[$key]) && (string)($row['key'] ?? '') === '') $key .= '2';
+                $email = trim((string)($row['email'] ?? ''));
+                if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) throw new RuntimeException('Invalid email for ' . $name . '.');
+                $clean = ['key' => $key];
+                foreach (LETTER_ENTITY_FIELDS as $field => $max) $clean[$field] = mb_substr(trim((string)($row[$field] ?? '')), 0, $max);
+                $out[$key] = $clean;
+            }
+            if (!$out) throw new RuntimeException('At least one company is required.');
+            saveLetterEntities($out);
+            $audit('letterhead_entities.updated', null, ['companies' => array_keys($out)]);
+            $returnId = (int)($_POST['return_id'] ?? 0);
+            header('Location: documents.php?' . ($returnId > 0 ? 'id=' . $returnId . '&' : '') . 'entities=1');
+            exit;
+        }
         if ($action === 'save') {
             $id = (int)($_POST['id'] ?? 0);
             $type = (string)($_POST['doc_type'] ?? '');
@@ -97,12 +117,16 @@ if (!$current && isset($types[$newType])) {
 }
 if (!$current && $all) $current = $all[0];
 if (isset($_GET['saved'])) $message = 'Template saved.';
+if (isset($_GET['entities'])) $message = 'Company details saved. All letters now use them.';
 if (isset($_GET['rates'])) $message = 'Exchange rates saved. New letters will use them for the USD / AED line.';
 $fx = fxRates();
 if (isset($_GET['installed'])) $message = (int)$_GET['installed'] . ' starter templates installed. Review the wording with HR/legal before sending.';
 
+$previewEntityKey = (string)($_GET['preview_entity'] ?? '');
+if (!isset(letterEntities()[$previewEntityKey])) $previewEntityKey = (string)array_key_first(letterEntities());
+$previewBrand = entityBrand($brand, letterEntity($previewEntityKey));
 $sample = [
-    'candidate_name' => 'Aarav Mehta', 'designation' => 'Senior Software Engineer', 'company_name' => (string)$brand['name'],
+    'candidate_name' => 'Aarav Mehta', 'designation' => 'Senior Software Engineer', 'company_name' => (string)$previewBrand['name'],
     'ctc' => '₹18,00,000 per annum', 'ctc_converted' => ctcConversionText('₹18,00,000 per annum'), 'joining_date' => date('d F Y', strtotime('+21 days')), 'location' => 'Remote (India)',
     'reporting_to' => 'Engineering Manager', 'respond_by' => date('d F Y', strtotime('+7 days')), 'offer_date' => date('d F Y'),
     'signatory_name' => (string)($user['name'] ?? 'HR Team'), 'signatory_title' => 'Human Resources',
@@ -110,7 +134,7 @@ $sample = [
 
 $activePage = 'documents';
 $pageTitle = 'Letters & Policies';
-$pageStyles = '<style>' . letterPaperCss() . '
+$pageStyles = '<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet"><style>' . letterPaperCss() . '
 .doc-grid{display:grid;grid-template-columns:260px minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px;align-items:start}
 .doc-list{padding:14px}.doc-list h3{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:14px 0 6px;display:flex;justify-content:space-between;align-items:center}
 .doc-list h3:first-child{margin-top:0}.doc-list h3 a{font-size:11px;text-transform:none;letter-spacing:0;color:var(--primary);text-decoration:none;font-weight:600}
@@ -129,7 +153,10 @@ $pageStyles = '<style>' . letterPaperCss() . '
 .doc-actions{display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap}
 .doc-note{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5}
 .doc-flash{padding:10px 12px;border-radius:8px;font-size:12px;margin-top:10px}.doc-flash.ok{background:var(--green-soft);color:#0f7a52}.doc-flash.err{background:#fff0f2;color:#b4233c}
-.doc-preview .letter-paper{font-size:12.5px;max-width:none;box-shadow:none}.doc-preview .letter-inner{padding:26px 28px 20px}.doc-preview .letter-foot{margin:0 28px}
+.doc-preview .letter-paper{font-size:12.5px;max-width:none;box-shadow:none;min-height:0}
+.ent-panel{margin-top:12px;padding:14px 16px}.ent-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px;margin-top:10px}
+.ent-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0}.ent-card legend{font-size:12px;font-weight:700;padding:0 4px}.ent-new{border-style:dashed;opacity:.85}
+.ent-card label{display:block;font-size:10px;font-weight:600;color:var(--muted);margin-top:6px}.ent-card .control{margin-top:3px}.ent-two{display:grid;grid-template-columns:1fr 1fr;gap:8px}.ent-preview-line{display:block;margin-top:8px;font-size:10.5px;line-height:1.5}
 .empty-state{padding:30px;text-align:center}
 .fx-panel{margin-top:12px;padding:14px 16px;display:flex;justify-content:space-between;gap:16px;align-items:flex-end;flex-wrap:wrap}
 .fx-form{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}.fx-form label{display:flex;flex-direction:column;gap:4px;font-size:10px;font-weight:600;color:var(--muted)}.fx-form .control{width:120px}
@@ -159,6 +186,43 @@ require __DIR__ . '/views/partials/header.php';
         <label>As of<input class="control" type="date" name="as_of" value="<?= htmlspecialchars((string)($fx['as_of'] ?? date('Y-m-d'))) ?>"></label>
         <button class="btn" type="submit" name="action" value="save_rates" style="background:#fff;border:1px solid var(--line)">Save rates</button>
         <button class="btn btn-primary" type="submit" name="action" value="fetch_rates" formnovalidate><i class="fa-solid fa-rotate"></i> Fetch latest</button>
+    </form>
+</section>
+<?php endif ?>
+
+<?php if ($tablesReady): ?>
+<section class="panel ent-panel">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
+        <strong style="font-size:13px"><i class="fa-solid fa-building" style="color:var(--primary)"></i> Company letterheads</strong>
+        <small class="muted" style="font-size:11px">Same logo for all companies. These details appear on every letter, PDF, Word file, candidate page and email. Choose the company per letter when you create it.</small>
+    </div>
+    <form method="post">
+        <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrfToken()) ?>"><input type="hidden" name="action" value="save_entities"><input type="hidden" name="return_id" value="<?= (int)($current['id'] ?? 0) ?>">
+        <div class="ent-grid">
+            <?php $entRows = array_values(letterEntities()); $entRows[] = ['key' => '', 'name' => '', 'wordmark_bold' => '', 'wordmark_light' => '', 'address' => '', 'po_box' => '', 'website' => '', 'email' => '', 'phone' => ''];
+            foreach ($entRows as $i => $ent): $isNew = $ent['key'] === ''; ?>
+            <fieldset class="ent-card<?= $isNew ? ' ent-new' : '' ?>">
+                <legend><?= $isNew ? '+ Add another company (optional)' : htmlspecialchars($ent['name']) ?></legend>
+                <input type="hidden" name="entities[<?= $i ?>][key]" value="<?= htmlspecialchars($ent['key']) ?>">
+                <label>Company name<input class="control" name="entities[<?= $i ?>][name]" maxlength="160" value="<?= htmlspecialchars($ent['name']) ?>" <?= $isNew ? '' : 'required' ?>></label>
+                <div class="ent-two">
+                    <label>Wordmark (bold)<input class="control" name="entities[<?= $i ?>][wordmark_bold]" maxlength="40" placeholder="Nonce" value="<?= htmlspecialchars($ent['wordmark_bold']) ?>"></label>
+                    <label>Wordmark (light)<input class="control" name="entities[<?= $i ?>][wordmark_light]" maxlength="40" placeholder="Labs" value="<?= htmlspecialchars($ent['wordmark_light']) ?>"></label>
+                </div>
+                <label>Address<input class="control" name="entities[<?= $i ?>][address]" maxlength="255" value="<?= htmlspecialchars($ent['address']) ?>"></label>
+                <div class="ent-two">
+                    <label>P.O. Box<input class="control" name="entities[<?= $i ?>][po_box]" maxlength="40" value="<?= htmlspecialchars($ent['po_box']) ?>"></label>
+                    <label>Phone<input class="control" name="entities[<?= $i ?>][phone]" maxlength="40" value="<?= htmlspecialchars($ent['phone']) ?>"></label>
+                </div>
+                <div class="ent-two">
+                    <label>Website<input class="control" name="entities[<?= $i ?>][website]" maxlength="120" value="<?= htmlspecialchars($ent['website']) ?>"></label>
+                    <label>Email<input class="control" type="email" name="entities[<?= $i ?>][email]" maxlength="160" value="<?= htmlspecialchars($ent['email']) ?>"></label>
+                </div>
+                <?php if (!$isNew): ?><small class="muted ent-preview-line"><?= htmlspecialchars(implode('  ·  ', letterContactLines($ent))) ?></small><?php endif ?>
+            </fieldset>
+            <?php endforeach ?>
+        </div>
+        <div style="margin-top:10px"><button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Save company details</button></div>
     </form>
 </section>
 <?php endif ?>
@@ -222,8 +286,8 @@ require __DIR__ . '/views/partials/header.php';
     </article>
 
     <article class="panel doc-preview">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><strong style="font-size:13px">Live preview</strong><small class="muted">Sample candidate data</small></div>
-        <div id="previewHost"><?= letterPaperHtml('', $brand, ['label' => $current['doc_type'] === 'policy' ? 'Company policy' : (OFFER_LETTER_TYPES[$current['doc_type']] ?? 'Letter'), 'ref' => 'Sample']) ?></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><strong style="font-size:13px">Live preview</strong><span class="muted" style="font-size:11px">Letterhead: <?php foreach (letterEntities() as $ek => $ent): ?><a href="documents.php?id=<?= (int)$current['id'] ?>&amp;preview_entity=<?= urlencode($ek) ?>" style="margin-left:6px;<?= $ek === $previewEntityKey ? 'font-weight:700;color:var(--primary)' : 'color:var(--muted)' ?>"><?= htmlspecialchars($ent['name']) ?></a><?php endforeach ?></span></div>
+        <div id="previewHost"><?= letterPaperHtml('', $previewBrand, ['label' => $current['doc_type'] === 'policy' ? 'Company policy' : (OFFER_LETTER_TYPES[$current['doc_type']] ?? 'Letter'), 'ref' => 'Sample']) ?></div>
     </article>
 </section>
 <script>

@@ -41,6 +41,7 @@ In ResumeIQ Settings, keep the external booking URL as `https://nonceblox.com/in
 ## Offer letters & candidate portal
 
 1. Apply `database/migrations/20261112_offer_letters.sql` (new tables only; already applied to the shared database on 2026-11-12).
+   Then `database/migrations/20261112_offer_letter_entity.sql` (one nullable column for the issuing company; also applied on 2026-11-12).
 2. Candidate emails link to `offer.php` on the public app URL. It defaults to `https://resume.nonceblox.com`; override with `RESUMEIQ_PUBLIC_URL=https://...` if the app lives elsewhere. Letters sent from a local copy use the same public URL, so deploy this release before sending real letters.
 3. Open **Letters & Policies** (`documents.php`) once to install and review the starter templates with HR/legal.
 4. `offer.php` and `offer_file.php?token=...` are intentionally public (token-protected, noindex). Do not block them in the web server.

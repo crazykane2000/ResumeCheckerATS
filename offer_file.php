@@ -28,7 +28,7 @@ if ($token !== '') {
     }
 }
 
-$brand = organizationBrand();
+$brand = entityBrand(organizationBrand(), letterEntity($offer['entity_key'] ?? null));
 $policies = json_decode((string)($offer['policy_ids_json'] ?? ''), true) ?: [];
 $policiesHtml = '';
 foreach ($policies as $p) $policiesHtml .= sanitizeLetterHtml(renderLetterTemplate((string)($p['body_html'] ?? ''), ['company_name' => (string)$brand['name']]));
@@ -64,7 +64,7 @@ $withPolicies = !empty($_GET['policies']) && $policiesHtml !== '';
 ?><!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
 <title><?= htmlspecialchars($title) ?></title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#f6f7fb;padding:24px 12px;font-family:Inter,Arial,sans-serif}
 <?= letterPaperCss() ?>
