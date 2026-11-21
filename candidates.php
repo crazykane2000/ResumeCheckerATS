@@ -6,6 +6,8 @@ require_once __DIR__.'/lib/application_match.php';
 require_once __DIR__.'/lib/candidate_activity.php';
 require_once __DIR__.'/lib/ctc.php';
 require_once __DIR__.'/lib/applications.php';
+require_once __DIR__.'/lib/job_deadline.php';
+require_once __DIR__.'/lib/candidate_export.php';
 
 $pdo=db();
 $user=currentUser();
@@ -162,6 +164,8 @@ ksort($countries);
 $totalApplicants=count($items);
 $totalWishlist=array_sum(array_map(fn($job)=>(int)$job['wishlist_count'],$jobs));
 
+$jobDeadlines=jobDeadlines($pdo);
+$canExport=candidateExportAllowed($pdo,$user);
 $activePage='candidates';
 $pageTitle='Candidates intelligence · ResumeIQ';
 $pageStyles=<<<'CSS'
@@ -170,6 +174,7 @@ $pageStyles=<<<'CSS'
 .candidate-filters{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:9px;padding:12px;margin-bottom:12px;border:1px solid var(--line);border-radius:8px;background:#fafafe}.filter-field label{display:block;margin-bottom:5px;font-size:9px;color:var(--muted)}.filter-field .control{height:36px;font-size:10px}.filter-count{display:flex;align-items:end;padding-bottom:9px;color:var(--muted);font-size:10px}
 .person-badge{display:inline-block;margin-left:4px;padding:1px 6px;border-radius:6px;background:#eefaf6;color:#0f7a52;font-size:9px;font-weight:700;vertical-align:middle;cursor:help}
 .budget-cell{white-space:nowrap}.budget-cell strong{display:block;font-size:12px;font-weight:700;color:var(--text,#0f172a)}.budget-cell small{display:block;margin-top:2px;font-size:9px;color:var(--muted)}.budget-expected strong{color:#087a52}.budget-current strong{color:#4f46e5}.budget-estimate strong{color:#64748b;font-weight:600;font-style:italic}.budget-review strong,.budget-none strong{color:#94a3b8;font-weight:600}
+.action-cell{white-space:nowrap}.row-action{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 8px;margin-right:4px;border:1px solid #d9d0ff;border-radius:6px;background:#fff;color:var(--primary);font-size:10px;font-weight:700;cursor:pointer}.row-action:hover{background:#f5f2ff}.row-action.reject{border-color:#fecaca;color:#b91c1c}.row-action.reject:hover{background:#fff1f1}
 .old-label{display:inline-flex;align-items:center;gap:4px;padding:4px 6px;border-radius:5px;background:#fff0f2;color:#b4233c;font-size:9px;font-weight:800}.fresh-label{color:var(--muted);font-size:9px}
 .drawer-shade{position:fixed;inset:0;background:#17122540;backdrop-filter:blur(2px);z-index:70;opacity:0;pointer-events:none;transition:.2s}.drawer-shade.open{opacity:1;pointer-events:auto}.candidate-drawer{position:fixed;right:0;top:0;bottom:0;width:min(590px,92vw);background:#fff;z-index:71;box-shadow:-20px 0 60px #23195029;transform:translateX(102%);transition:.24s;display:flex;flex-direction:column}.candidate-drawer.open{transform:none}.drawer-head{display:flex;justify-content:space-between;padding:22px;border-bottom:1px solid var(--line);background:linear-gradient(125deg,#fff,#f1edff)}.drawer-head h2{font-size:21px;margin:5px 0}.icon-btn{width:36px;height:36px;border:1px solid var(--line);background:#fff;border-radius:8px}.drawer-score{display:grid;grid-template-columns:190px 1fr;gap:20px;align-items:center;padding:18px 22px}.gauge{position:relative;width:180px;height:98px;overflow:hidden}.gauge-ring{position:absolute;width:180px;height:180px;border-radius:50%;background:conic-gradient(from 270deg,#ff4b2b 0 18%,#ffac12 18% 35%,#ffe600 35% 50%,#9bd000 50% 72%,#17ac16 72% 100%);clip-path:inset(0 0 50%)}.gauge-cut{position:absolute;left:28px;top:28px;width:124px;height:124px;background:#fff;border-radius:50%}.gauge-needle{position:absolute;left:90px;bottom:7px;width:67px;height:3px;background:#6f45ff;transform-origin:left;transform:rotate(var(--needle))}.gauge-needle:before{content:'';position:absolute;left:-6px;top:-5px;width:13px;height:13px;border-radius:50%;background:#6f45ff}.gauge-value{position:absolute;left:0;right:0;bottom:0;text-align:center;font-size:24px;font-weight:700}.score-copy p{font-size:11px;color:var(--muted);line-height:1.6}.drawer-tabs{display:grid;grid-template-columns:repeat(4,1fr);padding:8px 18px;gap:6px;background:#fbfaff;border-bottom:1px solid var(--line)}.drawer-tabs button{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 5px;border:1px solid transparent;border-radius:7px;font-size:10px;color:var(--muted);font-weight:600}.drawer-tabs button.active{background:#f0ebff;border-color:#d9ceff;color:var(--primary);font-weight:700}.drawer-body{padding:18px 22px 90px;overflow:auto;flex:1}.tab-pane{display:none}.tab-pane.active{display:block}.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.detail-card{padding:12px;border:1px solid var(--line);border-radius:8px}.detail-card small{display:block;color:var(--muted);margin-bottom:5px}.overview-section{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}.overview-section h3{margin:0 0 10px;font-size:12px}.chips{display:flex;flex-wrap:wrap;gap:6px}.chip{padding:5px 7px;border-radius:5px;background:#eafaf4;color:#087a55;font-size:9px}.chip.missing{background:#fff0f2;color:#c43b51}.chip.extra{background:#eef4ff;color:#3565bc}.gap-highlight{display:flex;gap:10px;align-items:flex-start;padding:12px;border:1px solid #f2cc82;border-radius:8px;background:#fff8e8;color:#81590d}.gap-highlight.clear{border-color:#bfe9d8;background:#edfaf5;color:#087a55}.gap-highlight.old-flag{border-color:#ffccd5;background:#fff0f3;color:#b4233c}.gap-highlight i{margin-top:2px}.gap-list{display:grid;gap:7px}.composition-list{display:grid;gap:9px}.composition-row{display:grid;grid-template-columns:125px minmax(0,1fr) 45px;gap:8px;align-items:center;font-size:10px}.composition-track,.skill-track{height:8px;border-radius:5px;background:#eceaf2;overflow:hidden}.composition-track i{display:block;height:100%;background:linear-gradient(90deg,#6f45ff,#a58fff)}.skill-graph{display:grid;gap:9px}.skill-graph-row{display:grid;grid-template-columns:105px minmax(0,1fr) 42px;gap:8px;align-items:center;font-size:10px}.skill-track i{display:block;height:100%;background:linear-gradient(90deg,#6f45ff,#24bd87)}.career-timeline{position:relative;margin-left:6px;padding-left:20px;border-left:2px solid #d9d0ff}.career-event{position:relative;padding:0 0 18px}.career-event:before{content:"";position:absolute;left:-26px;top:2px;width:10px;height:10px;border-radius:50%;background:#6f45ff;box-shadow:0 0 0 4px #eee9ff}.career-event strong{display:block;margin-bottom:4px}.career-event p{margin:0;color:var(--muted);font-size:10px;line-height:1.5}.resume-text-state{padding:12px;border:1px dashed var(--line);border-radius:8px;color:var(--muted);font-size:10px}.resume-raw{max-height:360px;overflow:auto;margin:10px 0 0;padding:12px;border:1px solid var(--line);border-radius:8px;background:#f8f8fc;white-space:pre-wrap;word-break:break-word;font:10px/1.6 Consolas,monospace}.drawer-actions{display:flex;gap:8px;padding:14px 22px;border-top:1px solid var(--line)}.drawer-actions .btn-primary{margin-left:auto}.editable-skill{display:block}.filter-field.skill-edit select{display:none}@media(max-width:1100px){.candidate-filters{grid-template-columns:repeat(2,minmax(140px,1fr))}}@media(max-width:900px){.d2-layout{grid-template-columns:1fr}.job-list-items{display:flex;overflow:auto;gap:7px}.job-row{min-width:240px}}@media(max-width:650px){.d2-head{align-items:flex-start;flex-direction:column}.candidate-filters{grid-template-columns:1fr}.candidate-table th:nth-child(3),.candidate-table td:nth-child(3){display:none}.drawer-score,.detail-grid{grid-template-columns:1fr}.drawer-tabs{grid-template-columns:1fr 1fr}}
 </style>
@@ -205,7 +210,7 @@ require __DIR__.'/views/partials/header.php';
                 <button class="job-row <?=$activeJobId===(int)$job['id']?'active':''?>" onclick="location.href='candidates.php?job=<?=(int)$job['id']?>'">
                     <span>
                         <strong><?=htmlspecialchars($job['title'])?></strong>
-                        <small><?=htmlspecialchars(ucfirst($job['status']))?></small>
+                        <small><?=htmlspecialchars(ucfirst($job['status']))?></small> <?=jobDeadlineBadge($jobDeadlines[(int)$job['id']]??null)?>
                     </span>
                     <span class="job-counts">
                         <b><?=(int)$job['applicants']?></b> applied<br>
@@ -289,7 +294,7 @@ require __DIR__.'/views/partials/header.php';
                 <label for="filterStage">Stage</label>
                 <select class="control" id="filterStage">
                     <option value="">All stages</option>
-                    <?php foreach(['Applied','Screening','Interview','Offer','Rejected'] as $stage):?>
+                    <?php foreach(['Applied','Screening','Invited','Interview','Round 1','Round 2','Offer','Rejected'] as $stage):?>
                         <option><?=htmlspecialchars($stage)?></option>
                     <?php endforeach?>
                 </select>
@@ -322,10 +327,13 @@ require __DIR__.'/views/partials/header.php';
 
         <div class="section-title">
             <div>
-                <h2><?=htmlspecialchars($activeJob['title']??'All Candidates')?></h2>
+                <h2><?=htmlspecialchars($activeJob['title']??'All Candidates')?> <?=$activeJob?jobDeadlineBadge($jobDeadlines[(int)$activeJob['id']]??null):''?></h2>
                 <small><?=count($candidates)?> shown · <?=count($favourites)?> in wishlist<?php if($hiredCount):?> · <a href="employees.php?tab=employees"><?=$hiredCount?> hired → Employees</a><?php endif?></small>
             </div>
-            <span class="tag">Top 5 highlighted</span>
+            <span style="display:flex;gap:6px;align-items:center">
+                <?php if($canExport):?><a class="btn" href="candidates_export.php?job=<?=$activeJobId?>" title="Download <?=$activeJob?'this job’s':'all'?> candidates as a CSV file that opens in Excel"><i class="fa-solid fa-file-csv"></i> Export CSV</a><?php endif?>
+                <span class="tag">Top 5 highlighted</span>
+            </span>
         </div>
 
         <?php if(!$candidates):?>
@@ -348,6 +356,7 @@ require __DIR__.'/views/partials/header.php';
                                 <th title="Expected CTC; current CTC if no expected; ~ = approximate estimate">Budget</th>
                                 <th>Job match</th>
                                 <th>Applied</th>
+                                <th>Actions</th>
                                 <th></th>
                             </tr>
                         </thead>
@@ -366,7 +375,7 @@ require __DIR__.'/views/partials/header.php';
                                         <small><?=htmlspecialchars($candidate['email']?:'No email')?><?php if(!empty($candidate['country_name'])):?> · 📍 <?=htmlspecialchars($candidate['country_name'])?><?php endif?></small>
                                     </td>
                                     <td><?=htmlspecialchars($candidate['job_title'])?></td>
-                                    <td><strong><?=htmlspecialchars($candidate['stage'])?></strong></td>
+                                    <td class="stage-cell"><strong><?=htmlspecialchars($candidate['stage'])?></strong></td>
                                     <td><span class="rank"><?=$i<5?'TOP '.($i+1):'RESERVE '.($i-4)?></span></td>
                                     <td class="experience-cell"><?=$months?round($months/12,1).' yrs':'Uncertain'?></td>
                                     <?php $budget=$candidate['budget'];$verify=in_array($budget['kind'],['expected','current'],true)&&($candidate['ctc_source']??'')!=='nonceblox_form';?>
@@ -382,6 +391,11 @@ require __DIR__.'/views/partials/header.php';
                                         <?php else:?>
                                             <span class="fresh-label"><?=$createdTime!==false?htmlspecialchars(date('d M Y',$createdTime)):'Unknown'?></span>
                                         <?php endif?>
+                                    </td>
+                                    <?php $nextTpl=match($candidate['stage']){'Applied'=>'screening','Screening'=>'round1','Interview','Invited','Round 1'=>'round2','Round 2'=>'offer',default=>'screening'};?>
+                                    <td class="action-cell" onclick="event.stopPropagation()">
+                                        <button type="button" class="row-action" title="Move stage / send stage email" onclick="openRowAction(this,'<?=$nextTpl?>')"><i class="fa-solid fa-arrows-turn-to-dots"></i> Move</button>
+                                        <?php if($candidate['stage']!=='Rejected'):?><button type="button" class="row-action reject" title="Reject with reason (rejection email optional)" onclick="openRowAction(this,'rejected')"><i class="fa-solid fa-ban"></i> Reject</button><?php endif?>
                                     </td>
                                     <td><i class="fa-solid fa-chevron-right muted"></i></td>
                                 </tr>
@@ -564,6 +578,7 @@ tableBody=document.querySelector('.candidate-table tbody');
 
 const urlParams=new URLSearchParams(location.search);
 if(urlParams.get('q')) filterSearch.value=urlParams.get('q');
+if(urlParams.get('stage') && filterStage) filterStage.value=urlParams.get('stage');
 if(urlParams.get('country') && filterCountry){
     const cParam=urlParams.get('country').trim().toLowerCase();
     const opt=[...filterCountry.options].find(o=>o.value.toLowerCase()===cParam || o.text.toLowerCase().includes(cParam));
@@ -676,5 +691,32 @@ inviteLocks.forEach(id=>{
         box.closest('td')?.insertAdjacentHTML('beforeend','<small style="display:block;color:#087a52;font-size:8px;font-weight:700">Invited</small>');
     }
 });
+
+function openRowAction(button,template){
+    const row=button.closest('tr');
+    if(!row)return;
+    StageAction.open(row.dataset.candidate,{
+        template,
+        onDone:(stage,res,note)=>{
+            row.dataset.stage=stage;
+            const cell=row.querySelector('.stage-cell strong');
+            if(cell)cell.textContent=stage;
+            if(stage==='Rejected')row.querySelector('.row-action.reject')?.remove();
+            if(candidateData[row.dataset.candidate])candidateData[row.dataset.candidate].stage=stage;
+            showRowNotice(note,!(res.email_sent&&res.email_result&&!res.email_result.ok));
+            filterCandidates();
+        }
+    });
+}
+function showRowNotice(text,ok){
+    let box=document.getElementById('rowActionNotice');
+    if(!box){box=document.createElement('div');box.id='rowActionNotice';box.setAttribute('role','status');box.style.cssText='position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:130;padding:10px 16px;border-radius:8px;font-size:12px;font-weight:700;box-shadow:0 10px 30px rgba(0,0,0,.15)';document.body.appendChild(box);}
+    box.textContent=text;
+    box.style.background=ok?'#eafaf4':'#fff0f2';
+    box.style.color=ok?'#087a55':'#b4233c';
+    box.hidden=false;
+    clearTimeout(box._t);box._t=setTimeout(()=>box.hidden=true,4500);
+}
 </script>
+<?php require __DIR__.'/views/partials/stage_action_modal.php'; ?>
 <?php require __DIR__.'/views/partials/footer.php'; ?>

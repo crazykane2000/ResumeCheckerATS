@@ -11,7 +11,7 @@ require __DIR__.'/views/partials/header.php';
 <section class="panel hire-search-panel">
 <h1>Who do you want to hire?</h1>
 <p class="muted">Choose a role and search candidates by name or skills.</p>
-<form class="hire-search-form" action="dashboard.php" method="get">
+<form class="hire-search-form" action="candidates.php" method="get">
 <div><label for="hireRole">Role</label><select class="control" id="hireRole" name="job"><option value="">Select role</option><?php foreach($jobs as $job):?><option value="<?=(int)$job['id']?>"><?=htmlspecialchars(trim($job['title']))?></option><?php endforeach?></select></div>
 <div><label for="candidateSearch">Candidate or skills</label><input class="control" type="search" id="candidateSearch" name="q" placeholder="Search skills or candidate..." autocomplete="off"></div>
 <button class="btn btn-primary" type="submit"><i class="fa-solid fa-magnifying-glass"></i> Search</button>

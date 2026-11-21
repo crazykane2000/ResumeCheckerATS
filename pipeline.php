@@ -1117,6 +1117,11 @@ require __DIR__ . '/views/partials/header.php';
                   <button type="button" class="mail-action-btn" onclick="openStageModal('<?=htmlspecialchars($c['id'], ENT_QUOTES)?>', '<?=$stageKey?>', event)">
                     <i class="fa-solid fa-paper-plane"></i> Stage Mail
                   </button>
+                  <?php if ($stageKey !== 'Rejected'): ?>
+                  <button type="button" class="mail-action-btn reject-action-btn" title="Reject with reason" onclick="openStageModal('<?=htmlspecialchars($c['id'], ENT_QUOTES)?>', 'Rejected', event)">
+                    <i class="fa-solid fa-ban"></i>
+                  </button>
+                  <?php endif; ?>
                 </div>
 
               </div>
@@ -1175,6 +1180,9 @@ require __DIR__ . '/views/partials/header.php';
             <button type="button" class="mail-action-btn" onclick="openStageModal('<?=htmlspecialchars($c['id'], ENT_QUOTES)?>', 'Invited', event)">
               <i class="fa-solid fa-paper-plane"></i> Invite to Interview
             </button>
+            <button type="button" class="mail-action-btn reject-action-btn" title="Reject with reason" onclick="openStageModal('<?=htmlspecialchars($c['id'], ENT_QUOTES)?>', 'Rejected', event)">
+              <i class="fa-solid fa-ban"></i>
+            </button>
           </div>
         </div>
       <?php endforeach; ?>
@@ -1216,12 +1224,22 @@ require __DIR__ . '/views/partials/header.php';
           <select id="modalTemplateSelect" class="pipeline-select" style="width:100%;" onchange="onTemplateChanged()">
             <option value="welcome">Applied · Application Received (Welcome)</option>
             <option value="screening">Screening · Profile Shortlisted</option>
-            <option value="round1" selected>Interview · Round 1 (Screening / Technical)</option>
-            <option value="round2">Interview · Round 2 (Advanced / Leadership)</option>
+            <option value="round1" selected>Interview · Invite to Round 1 (Screening / Technical)</option>
+            <option value="round2">Round 2 · Invite to Round 2 (Advanced / Leadership)</option>
             <option value="offer">Offer · Selection & Employment Offer</option>
             <option value="rejected">Rejected · Respectful Rejection</option>
           </select>
         </div>
+
+        <div id="modalRejectBox" hidden style="padding:10px 12px; border:1px solid #fecaca; border-radius:8px; background:#fff5f5;">
+          <label for="modalRejectReason" style="display:block; font-size:12px; font-weight:700; color:#991b1b; margin-bottom:6px;">
+            Rejection reason (internal, saved to timeline) *
+          </label>
+          <select id="modalRejectReason" class="pipeline-select" style="width:100%;"><option value="">Select a reason…</option></select>
+          <textarea id="modalRejectNote" rows="2" placeholder="Rejection note (internal, optional — required for “Other”)" style="width:100%; margin-top:8px; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px; font-family:inherit; resize:vertical;"></textarea>
+          <small style="display:block; margin-top:4px; color:#64748b; font-size:11px;">Never included in the candidate email.</small>
+        </div>
+        <div id="modalDuplicateWarn" style="display:none; padding:8px 10px; border-radius:6px; background:#fff7e6; border:1px solid #f5d08a; color:#8a5a00; font-size:11.5px;"></div>
 
         <div>
           <label style="display:block; font-size:12px; font-weight:700; color:#334155; margin-bottom:6px;">
@@ -1246,7 +1264,7 @@ require __DIR__ . '/views/partials/header.php';
                     placeholder="Enter custom remarks or use template defaults..."
                     oninput="updateLivePreviewFromInputs()"></textarea>
           <small style="margin-top:4px; color:#64748b; font-size:11px;">
-            <i class="fa-solid fa-circle-info"></i> Automatically renders with NonceBlox branding, logo, colors, and action button.
+            <i class="fa-solid fa-circle-info"></i> Placeholders such as [Candidate Name], [First Name], [Job Title] and [Company Name] are filled automatically.
           </small>
         </div>
 
@@ -1512,6 +1530,12 @@ async function openStageModal(candidateId, targetStage, evt) {
     else evalRec.value = 'Advance';
   }
 
+  const rejectReason = document.getElementById('modalRejectReason');
+  const rejectNote = document.getElementById('modalRejectNote');
+  if (rejectReason) rejectReason.value = '';
+  if (rejectNote) rejectNote.value = '';
+  syncModalStageUi();
+
   // Map target stage to default lifecycle template
   const stageMap = {
     'Applied': 'welcome',
@@ -1533,6 +1557,7 @@ async function openStageModal(candidateId, targetStage, evt) {
     if (!data.ok) throw new Error(data.error || 'Failed to load preview');
 
     activeCandidate = data.candidate;
+    applyPreviewMeta(data);
     document.getElementById('modalCandidateTitle').innerHTML = `
       <i class="fa-solid fa-paper-plane" style="color:#7c3aed;"></i>
       <span>Move to <strong>${escapeHtml(targetStage)}</strong> & Send Branded Mail</span>
@@ -1565,6 +1590,8 @@ async function openStageModal(candidateId, targetStage, evt) {
 async function onTemplateChanged() {
   if (!activeCandidate) return;
   const tplKey = document.getElementById('modalTemplateSelect').value;
+  targetDroppedStage = stageForTemplate(tplKey, targetDroppedStage);
+  syncModalStageUi();
 
   try {
     const res = await fetch(`pipeline_lifecycle_api.php?action=get_preview&candidate_id=${encodeURIComponent(activeCandidate.id)}&stage=${encodeURIComponent(targetDroppedStage)}&template_key=${encodeURIComponent(tplKey)}`);
@@ -1574,8 +1601,72 @@ async function onTemplateChanged() {
       document.getElementById('modalSubject').value = data.subject;
       document.getElementById('modalBodyText').value = data.body_text;
       renderIframeHtml(data.html);
+      applyPreviewMeta(data);
     }
   } catch (e) {}
+}
+
+// The chosen template decides the stage: a Round 2 invitation moves the card to Round 2,
+// a rejection template to Rejected. A Round 1 invite keeps the Invited / Round 1 column it was dropped in.
+const TEMPLATE_STAGE = { welcome: 'Applied', screening: 'Screening', round1: 'Interview', round2: 'Round 2', offer: 'Offer', rejected: 'Rejected' };
+let previewPlaceholders = {};
+let rejectionReasonsLoaded = false;
+
+function stageForTemplate(tplKey, current) {
+  const stage = TEMPLATE_STAGE[tplKey] || current;
+  if (stage === 'Interview' && ['Invited', 'Round 1', 'Interview'].includes(current)) return current;
+  return stage;
+}
+
+function syncModalStageUi() {
+  const rejecting = targetDroppedStage === 'Rejected';
+  const box = document.getElementById('modalRejectBox');
+  if (box) box.hidden = !rejecting;
+  const evalRec = document.getElementById('modalEvalRecommendation');
+  if (rejecting && evalRec) evalRec.value = 'Reject';
+  const title = document.getElementById('modalCandidateTitle');
+  if (title && targetDroppedStage) {
+    title.innerHTML = `<i class="fa-solid fa-paper-plane" style="color:#7c3aed;"></i> <span>Move to <strong>${escapeHtml(targetDroppedStage)}</strong> & Send Branded Mail</span>`;
+  }
+  const sendBtn = document.getElementById('btnSendAndMove');
+  const moveBtn = document.getElementById('btnMoveOnly');
+  if (sendBtn) sendBtn.innerHTML = rejecting ? '<i class="fa-solid fa-paper-plane"></i> Reject & Send Rejection Email' : '<i class="fa-solid fa-paper-plane"></i> Send Branded Email & Move';
+  if (moveBtn) moveBtn.innerHTML = rejecting ? '<i class="fa-solid fa-ban"></i> Reject Only (No Mail)' : '<i class="fa-solid fa-arrows-turn-to-dots"></i> Move Stage Only (No Mail)';
+}
+
+function applyPreviewMeta(data) {
+  previewPlaceholders = data.placeholders || {};
+  if (!rejectionReasonsLoaded && data.rejection_reasons) {
+    const sel = document.getElementById('modalRejectReason');
+    Object.entries(data.rejection_reasons).forEach(([k, v]) => sel.add(new Option(v, k)));
+    rejectionReasonsLoaded = true;
+  }
+  const warn = document.getElementById('modalDuplicateWarn');
+  if (warn) {
+    warn.textContent = data.already_sent ? `This email template was already sent to the candidate on ${data.already_sent}. Sending again will ask for confirmation.` : '';
+    warn.style.display = data.already_sent ? 'block' : 'none';
+  }
+}
+
+function fillPlaceholders(text) {
+  const p = previewPlaceholders || {};
+  const values = { ...p, first_name: String(p.candidate_name || '').trim().split(/\s+/)[0] || '' };
+  const map = {
+    candidate_name: ['candidate name', 'candidate_name', 'name', 'candidate'],
+    first_name: ['first name', 'first_name'],
+    job_title: ['job title', 'job_title', 'position', 'role', 'job', 'position name', 'role name'],
+    company_name: ['company name', 'company_name', 'company', 'organization', 'organisation']
+  };
+  let out = String(text ?? '');
+  for (const [key, aliases] of Object.entries(map)) {
+    const value = String(values[key] || '').trim();
+    if (!value) continue;
+    for (const a of aliases) {
+      const q = a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      out = out.replace(new RegExp('(\\{\\{\\s*' + q + '\\s*\\}\\}|\\[\\s*' + q + '\\s*\\]|\\{\\s*' + q + '\\s*\\})', 'gi'), () => value);
+    }
+  }
+  return out;
 }
 
 function updateLivePreviewFromInputs() {
@@ -1587,7 +1678,7 @@ function updateLivePreviewFromInputs() {
 
   const bodyHolder = doc.querySelector('div[style*="line-height:1.8"]') || doc.querySelector('div[style*="line-height: 1.8"]');
   if (bodyHolder && customMessage.trim() !== '') {
-    bodyHolder.innerHTML = customMessage.replace(/\n/g, '<br>');
+    bodyHolder.innerHTML = escapeHtml(fillPlaceholders(customMessage)).replace(/\n/g, '<br>');
   }
 }
 
@@ -1612,8 +1703,21 @@ function closeStageModal() {
 }
 
 // Execute Move & Email
-async function executeStageTransition(sendEmail) {
+async function executeStageTransition(sendEmail, allowResend = false) {
   if (!activeCandidate || !targetDroppedStage) return;
+
+  const rejectReason = document.getElementById('modalRejectReason')?.value || '';
+  const rejectNote = (document.getElementById('modalRejectNote')?.value || '').trim();
+  if (targetDroppedStage === 'Rejected' && !rejectReason) {
+    alert('Select a rejection reason first. It is saved on the candidate timeline.');
+    document.getElementById('modalRejectReason').focus();
+    return;
+  }
+  if (targetDroppedStage === 'Rejected' && rejectReason === 'other' && !rejectNote) {
+    alert('Add a short rejection note when the reason is "Other".');
+    document.getElementById('modalRejectNote').focus();
+    return;
+  }
 
   const sendBtn = document.getElementById('btnSendAndMove');
   const moveBtn = document.getElementById('btnMoveOnly');
@@ -1642,24 +1746,37 @@ async function executeStageTransition(sendEmail) {
         message_text: messageText,
         eval_feedback: evalFeedback,
         eval_strengths: evalStrengths,
-        eval_recommendation: evalRecommendation
+        eval_recommendation: evalRecommendation,
+        rejection_reason: rejectReason,
+        rejection_note: rejectNote,
+        allow_resend: allowResend ? 1 : 0
       })
     });
 
-    const res = await response.json();
+    const res = await response.json().catch(() => ({ ok: false, error: 'Unexpected server response.' }));
+    if (res.duplicate && sendEmail && !allowResend) {
+      sendBtn.disabled = false;
+      moveBtn.disabled = false;
+      if (confirm(res.error + '\n\nSend it again anyway?')) return executeStageTransition(true, true);
+      return;
+    }
     if (!res.ok) throw new Error(res.error || 'Operation failed');
 
-    // Update dataset on card
-    if (currentDraggedCard) {
-      currentDraggedCard.dataset.stage = targetDroppedStage;
-    }
+    // The server may adjust the stage (e.g. Round 2 invite) - place the card in that column.
+    targetDroppedStage = res.stage || targetDroppedStage;
+    const movedCard = currentDraggedCard || document.querySelector(`.cand-card[data-id="${CSS.escape(activeCandidate.id)}"]`);
+    const targetZone = document.querySelector(`.kanban-dropzone[data-stage="${CSS.escape(targetDroppedStage)}"]`);
+    if (movedCard && targetZone && movedCard.parentElement !== targetZone) targetZone.prepend(movedCard);
+    if (movedCard) movedCard.dataset.stage = targetDroppedStage;
+    updateColumnCounts();
 
     const modal = document.getElementById('stageModal');
     modal.classList.remove('active');
 
     // Show clean toast
-    const msg = sendEmail 
-      ? `✓ Candidate moved to ${targetDroppedStage} & branded email dispatched to ${activeCandidate.email}!`
+    const delivered = res.email_result && res.email_result.ok;
+    const msg = sendEmail
+      ? (delivered ? `✓ Candidate moved to ${targetDroppedStage} & email sent to ${activeCandidate.email}` : `⚠ Moved to ${targetDroppedStage}, but the email was NOT delivered. Check mail settings.`)
       : `✓ Candidate stage updated to ${targetDroppedStage} (no email sent).`;
     showToast(msg);
 
@@ -2102,16 +2219,35 @@ function renderDrawerNotes(c) {
       <div class="career-timeline">
         ${activity.map(a => `
           <div class="career-event">
-            <strong>${esc(a.date || a.created_at || 'Event')}</strong>
-            <p style="font-weight:600; color:#334155;">${esc(a.action || a.title || 'Candidate event')}</p>
-            <p>${esc(a.details || a.description || '')}</p>
+            <strong>${esc(a.at || a.date || a.created_at || 'Event')}</strong>
+            <p style="font-weight:600; color:${a.state === 'danger' ? '#b91c1c' : '#334155'};">${esc(a.title || a.action || 'Candidate event')}</p>
+            <p>${esc(a.detail || a.details || a.description || '')}</p>
           </div>
         `).join('')}
       </div>
     </div>
   ` : '';
 
-  document.getElementById('paneNotes').innerHTML = `
+  const sb = c.scoreboard || { count: 0 };
+  const bar = v => `<div style="height:6px; border-radius:4px; background:#eceaf2; overflow:hidden;"><i style="display:block; height:100%; width:${Math.round(Number(v) / 5 * 100)}%; background:linear-gradient(90deg,#6f45ff,#24bd87);"></i></div>`;
+  const scoreboardHtml = `
+    <div style="border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <h4 style="font-size:12px; font-weight:700; color:#475569; margin:0;"><i class="fa-solid fa-star" style="color:#eab308;"></i> Interview scoreboard (${sb.count} scorecard${sb.count === 1 ? '' : 's'})</h4>
+        <a href="${esc(c.scorecard_url || c.detail_url)}" target="_blank" style="font-size:11px; font-weight:700; color:#6f45ff; text-decoration:none;">+ Add scorecard</a>
+      </div>
+      ${sb.count ? `
+        <div style="display:grid; grid-template-columns:120px 1fr 40px; gap:6px 10px; align-items:center; font-size:11px;">
+          ${[['Technical', 'technical'], ['Communication', 'communication'], ['Culture fit', 'cultural'], ['Problem solving', 'problem_solving']].map(([l, k]) => `<span>${l}</span>${bar(sb.averages[k])}<b>${sb.averages[k]}/5</b>`).join('')}
+          <strong>Overall average</strong>${bar(sb.averages.overall)}<b style="color:#6f45ff;">${sb.averages.overall}/5</b>
+        </div>
+        <div style="overflow:auto;"><table style="width:100%; margin-top:10px; border-collapse:collapse; font-size:11px;">
+          <thead><tr style="color:#64748b; text-align:left;"><th style="padding:4px 0;">Interviewer</th><th>Tech</th><th>Comm</th><th>Culture</th><th>Prob.</th><th>Overall</th><th>Recommendation</th></tr></thead>
+          <tbody>${sb.cards.map(r => `<tr style="border-top:1px solid #f1f5f9;" title="${esc(r.notes || '')}"><td style="padding:5px 0;">${esc(r.interviewer_name || 'Interviewer')}<br><small style="color:#94a3b8;">${esc(r.created_at)}</small></td><td>${esc(r.technical_rating)}</td><td>${esc(r.communication_rating)}</td><td>${esc(r.cultural_rating)}</td><td>${esc(r.problem_solving_rating)}</td><td><b>${esc(r.overall_score)}</b></td><td>${esc(r.recommendation)}</td></tr>`).join('')}</tbody>
+        </table></div>` : `<p style="margin:0; font-size:11.5px; color:#94a3b8;">No interviewer scorecards yet. Interviewers rate technical, communication, culture fit and problem solving from “Add scorecard”.</p>`}
+    </div>`;
+
+  document.getElementById('paneNotes').innerHTML = scoreboardHtml + `
     <!-- Note Add Box -->
     <div class="notes-add-box">
       <h4>

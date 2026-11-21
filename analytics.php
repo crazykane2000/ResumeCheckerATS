@@ -16,7 +16,7 @@ $experience=['Under 1 year'=>0,'1-3 years'=>0,'3-5 years'=>0,'5+ years'=>0,'Unav
 foreach($items as $c){
     $source=$c['source']??'Unknown';
     $bySource[$source]['total']=($bySource[$source]['total']??0)+1;
-    if(in_array($c['stage']??'',['Interview','Offer'],true)) {
+    if(in_array($c['stage']??'',['Invited','Interview','Round 1','Round 2','Offer'],true)) {
         $bySource[$source]['converted']=($bySource[$source]['converted']??0)+1;
     }
     if(!empty($c['experience']['gaps']))$gaps++;
@@ -46,7 +46,7 @@ arsort($skills);
 $topSkills=array_slice($skills,0,12,true);
 $maxSkill=max($topSkills?:[1]);
 
-$stats=$pdo->query("SELECT COUNT(*) resumes, SUM(stage='Interview') interviews, SUM(stage='Offer') offers FROM candidates")->fetch();
+$stats=$pdo->query("SELECT COUNT(*) resumes, COALESCE(SUM(stage IN ('Invited','Interview','Round 1','Round 2')),0) interviews, COALESCE(SUM(stage='Offer'),0) offers FROM candidates")->fetch();
 $jobTotal=(int)$pdo->query("SELECT COUNT(*) FROM jobs WHERE status IN ('open','draft')")->fetchColumn();
 $selected=(int)$pdo->query("SELECT COUNT(*) FROM wishlist_items WHERE disposition='selected'")->fetchColumn();
 
@@ -88,7 +88,9 @@ unset($r);
 uasort($coverage,fn($a,$b)=>$a['percent']<=>$b['percent']);
 
 $availExperienceCount = $total - $experience['Unavailable'];
-$availExperiencePercent = $total > 0 ? (int)round(($availExperienceCount / $total) * 100) : 57;
+$availExperiencePercent = $total > 0 ? (int)round(($availExperienceCount / $total) * 100) : 0;
+// Data quality = share of the three core fields (email, phone, experience) that are present.
+$qualityScore = $total > 0 ? (int)round(100 * (1 - (($missing['email'] + $missing['phone'] + $missing['experience']) / (3 * $total)))) : 0;
 
 $activePage='analytics';
 $pageTitle='Analytics · NonceBlox ATS';
@@ -110,6 +112,10 @@ $pageStyles='<style>
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px}
 .kpi,.card{background:rgba(255,255,255,.94);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:18px}
 .kpi{padding:20px;position:relative;overflow:hidden}
+a.kpi-link,a.job-link,a.skill-link,a.stage-link,a.loc-link{color:inherit;text-decoration:none;cursor:pointer}
+a.kpi-link{display:block;transition:border-color .15s,transform .15s}a.kpi-link:hover{border-color:#cfc3ff;transform:translateY(-1px)}
+a.job-link:hover,a.skill-link:hover,a.loc-link:hover{background:#faf8ff}a.stage-link:hover .bar{filter:brightness(1.08)}
+a.kpi-link:focus-visible,a.job-link:focus-visible,a.skill-link:focus-visible,a.stage-link:focus-visible,a.loc-link:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
 .kpi .label{color:var(--muted);font-weight:650;font-size:13px}
 .kpi .value{font-size:32px;font-weight:850;letter-spacing:-.04em;margin-top:6px;color:var(--ink)}
 .kpi small{color:var(--purple);font-weight:700;font-size:12px}
@@ -194,6 +200,8 @@ $pageStyles='<style>
 }
 </style>';
 
+require_once __DIR__.'/lib/job_deadline.php';
+$jobDeadlines=jobDeadlines($pdo);
 require __DIR__.'/views/partials/header.php';
 ?>
 
@@ -205,33 +213,33 @@ require __DIR__.'/views/partials/header.php';
       <div class="sub">Resume-backed evidence, job demand and hiring operations in one recruiter-controlled view.</div>
     </div>
     <div class="actions">
-      <a href="dashboard.php" class="btn-action">Candidate dashboard</a>
+      <a href="candidates.php" class="btn-action">Candidate dashboard</a>
       <a href="job_edit.php" class="btn-action primary">＋ Create job</a>
     </div>
   </section>
 
   <!-- KPI SUMMARY ROW -->
   <section class="kpis">
-    <div class="kpi">
+    <a class="kpi kpi-link" href="candidates.php" title="<?=htmlspecialchars($stats['resumes'].' candidate records · '.$availExperienceCount.' with dated experience · '.$missing['email'].' missing email. Click to open the candidate list.')?>">
       <div class="label">Resume-backed candidates</div>
       <div class="value"><?=$stats['resumes']?></div>
-      <small>Evidence indexed</small>
-    </div>
-    <div class="kpi">
+      <small>Evidence indexed · view all →</small>
+    </a>
+    <a class="kpi kpi-link" href="#jobs" title="<?=htmlspecialchars($jobTotal.' jobs with status open or draft. Click to see applicants per job.')?>">
       <div class="label">Open + draft jobs</div>
       <div class="value"><?=$jobTotal?></div>
-      <small>Active demand</small>
-    </div>
-    <div class="kpi">
+      <small>Active demand · see jobs →</small>
+    </a>
+    <a class="kpi kpi-link" href="wishlist.php" title="<?=htmlspecialchars($selected.' wishlist entries marked “selected” by a recruiter. Click to open the wishlist.')?>">
       <div class="label">Recruiter selected</div>
       <div class="value"><?=$selected?></div>
-      <small>Across open roles</small>
-    </div>
-    <div class="kpi">
+      <small>Across open roles · open wishlist →</small>
+    </a>
+    <a class="kpi kpi-link" href="pipeline.php" title="<?=htmlspecialchars('Invited: '.(int)($stages['Invited']??0).' · Interview: '.(int)($stages['Interview']??0).' · Round 1: '.(int)($stages['Round 1']??0).' · Round 2: '.(int)($stages['Round 2']??0).' · Offer: '.(int)$stats['offers'].'. Click to open the pipeline.')?>">
       <div class="label">Interview + offer</div>
       <div class="value"><?=$stats['interviews']?> <span style="color:#b9b3c4;font-size:18px">+ <?=$stats['offers']?></span></div>
-      <small>Current pipeline</small>
-    </div>
+      <small>All interview rounds + offers · pipeline →</small>
+    </a>
   </section>
 
   <!-- MAIN GRID -->
@@ -256,16 +264,16 @@ require __DIR__.'/views/partials/header.php';
           foreach($jobs as $j): 
             $width = max(2, round(($j['applicants'] / $maxApp) * 100));
           ?>
-          <div class="job">
+          <a class="job job-link" href="candidates.php?job=<?=(int)$j['id']?>" title="<?=htmlspecialchars($j['title'].': '.$j['applicants'].' applicants · '.$j['shortlisted'].' in wishlist · '.$j['selected'].' selected · status '.$j['status'].'. Click to open these candidates.')?>">
             <div>
               <div class="jobname"><?=htmlspecialchars($j['title'])?></div>
-              <div class="meta"><?=$j['shortlisted']?> wishlist · <?=$j['selected']?> selected · <?=htmlspecialchars($j['status'])?></div>
+              <div class="meta"><?=$j['shortlisted']?> wishlist · <?=$j['selected']?> selected · <?=htmlspecialchars($j['status'])?> <?=jobDeadlineBadge($jobDeadlines[(int)$j['id']]??null)?></div>
             </div>
             <div class="track">
               <div class="fill" style="width:<?=$width?>%"></div>
             </div>
             <div class="count"><?=$j['applicants']?></div>
-          </div>
+          </a>
           <?php endforeach; ?>
           <?php if(empty($jobs)): ?>
             <div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">No jobs configured yet.</div>
@@ -286,11 +294,11 @@ require __DIR__.'/views/partials/header.php';
           <?php foreach($topSkills as $skill=>$count): 
             $percent = round(($count / $maxSkill) * 100);
           ?>
-          <div class="skillrow">
+          <a class="skillrow skill-link" href="candidates.php?q=<?=urlencode($skill)?>" title="<?=htmlspecialchars($count.' candidates list '.$skill.' ('.$percent.'% of the most common skill). Click to search them.')?>">
             <b><?=htmlspecialchars($skill)?></b>
             <div class="mini"><i style="width:<?=$percent?>%"></i></div>
-            <span><?=$percent?>%</span>
-          </div>
+            <span><?=$count?></span>
+          </a>
           <?php endforeach; ?>
           <?php if(empty($topSkills)): ?>
             <div style="grid-column:span 2;padding:20px;text-align:center;color:var(--muted);font-size:12px">No parsed skill evidence yet.</div>
@@ -318,12 +326,7 @@ require __DIR__.'/views/partials/header.php';
             </div>
             <?php endforeach; ?>
           <?php else: ?>
-            <div class="heatitem low"><b>Web3 / Crypto</b><span>0% · 0/13</span></div>
-            <div class="heatitem low"><b>Growth Marketing</b><span>0% · 0/13</span></div>
-            <div class="heatitem low"><b>AI / ML</b><span>0% · 0/13</span></div>
-            <div class="heatitem mid"><b>PHP / MySQL</b><span>15% · 18/121</span></div>
-            <div class="heatitem mid"><b>Solidity</b><span>30% · 24/80</span></div>
-            <div class="heatitem"><b>React</b><span>43% · 52/121</span></div>
+            <div class="hint" style="grid-column:1/-1;padding:12px 0">No analyzed job matches yet. Configure required skills on a job to see coverage.</div>
           <?php endif; ?>
         </div>
       </article>
@@ -341,17 +344,14 @@ require __DIR__.'/views/partials/header.php';
             <?php foreach(array_slice($jobScores, 0, 8, true) as $id=>$r): 
               $avg = (int)round(array_sum($r['scores']) / count($r['scores']));
             ?>
-            <div class="matchrow">
+            <a class="matchrow job-link" href="candidates.php?job=<?=(int)$id?>" title="<?=htmlspecialchars('Average Evidence v1 match across '.count($r['scores']).' analyzed candidates. Click to open them.')?>">
               <b><?=htmlspecialchars($r['name'])?></b>
               <div class="mini"><i style="width:<?=$avg?>%"></i></div>
               <b><?=$avg?>%</b>
-            </div>
+            </a>
             <?php endforeach; ?>
           <?php else: ?>
-            <div class="matchrow"><b>Fullstack Developer - Web3 & AI</b><div class="mini"><i style="width:25%"></i></div><b>25%</b></div>
-            <div class="matchrow"><b>Growth & Marketing Manager</b><div class="mini"><i style="width:10%"></i></div><b>10%</b></div>
-            <div class="matchrow"><b>Blockchain Developer</b><div class="mini"><i style="width:46%"></i></div><b>46%</b></div>
-            <div class="matchrow"><b>Blockchain QA Engineer</b><div class="mini"><i style="width:35%"></i></div><b>35%</b></div>
+            <div class="hint" style="padding:12px 0">No analyzed job matches yet.</div>
           <?php endif; ?>
         </div>
       </article>
@@ -368,7 +368,7 @@ require __DIR__.'/views/partials/header.php';
           </div>
         </div>
         <div class="donutwrap">
-          <div class="donut" style="--p:<?=$availExperiencePercent?>">
+          <div class="donut" style="--p:<?=$availExperiencePercent?>" title="<?=htmlspecialchars($availExperienceCount.' of '.$total.' candidates have experience calculated from dated roles; '.$experience['Unavailable'].' need review.')?>">
             <div class="donutlabel"><?=$availExperiencePercent?>%<small>available</small></div>
           </div>
           <div class="legend">
@@ -393,22 +393,23 @@ require __DIR__.'/views/partials/header.php';
           <?php 
           $funnelStages = [
             'Open board' => $total,
-            'Applied' => $stages['Applied'] ?? 4,
-            'Screening' => $stages['Screening'] ?? 19,
-            'Interview' => $stages['Interview'] ?? $stats['interviews'],
-            'Offer' => $stages['Offer'] ?? $stats['offers'],
-            'Rejected' => $stages['Rejected'] ?? 0
+            'Applied' => (int)($stages['Applied'] ?? 0),
+            'Screening' => (int)($stages['Screening'] ?? 0),
+            'Interview' => (int)$stats['interviews'],
+            'Offer' => (int)$stats['offers'],
+            'Rejected' => (int)($stages['Rejected'] ?? 0)
           ];
           $maxF = max(1, $total);
           foreach($funnelStages as $sName => $sCount):
             $h = max(6, round(($sCount / $maxF) * 125));
             $op = 0.45 + 0.55 * ($sCount / $maxF);
           ?>
-          <div class="stage">
+          <?php $stageHref = match($sName){'Open board'=>'candidates.php','Interview'=>'pipeline.php',default=>'candidates.php?stage='.urlencode($sName)}; ?>
+          <a class="stage stage-link" href="<?=$stageHref?>" title="<?=htmlspecialchars($sName.': '.$sCount.' candidates'.($sName==='Interview'?' (Invited + Interview + Round 1 + Round 2)':'').'. Click to view.')?>">
             <div class="bar" style="height:<?=$h?>px;opacity:<?=$op?>"></div>
             <b><?=$sCount?></b>
             <small><?=htmlspecialchars($sName)?></small>
-          </div>
+          </a>
           <?php endforeach; ?>
         </div>
       </article>
@@ -422,7 +423,7 @@ require __DIR__.'/views/partials/header.php';
           </div>
         </div>
         <div class="quality">
-          <div class="score"><strong>46</strong></div>
+          <div class="score" title="Share of email, phone and experience fields present across <?=$total?> candidates"><strong><?=$qualityScore?></strong></div>
           <div class="issues">
             <div class="issue"><b><?=$missing['experience']?></b><span>Missing experience</span></div>
             <div class="issue"><b><?=$missing['phone']?></b><span>Missing phone</span></div>
@@ -442,16 +443,13 @@ require __DIR__.'/views/partials/header.php';
         </div>
         <div class="location" id="locations">
           <?php foreach($countries as $cRow): ?>
-          <div class="loc">
+          <a class="loc loc-link" href="candidates.php?country=<?=urlencode($cRow['country_code']?:$cRow['country_name'])?>" title="Click to view these candidates">
             <b><?=htmlspecialchars($cRow['country_name']?:$cRow['country_code'])?></b>
             <span><?=$cRow['total']?> candidates</span>
-          </div>
+          </a>
           <?php endforeach; ?>
           <?php if(empty($countries)): ?>
-            <div class="loc"><b>India</b><span>242 candidates</span></div>
-            <div class="loc"><b>Kenya</b><span>15 candidates</span></div>
-            <div class="loc"><b>UAE</b><span>6 candidates</span></div>
-            <div class="loc"><b>Ireland</b><span>2 candidates</span></div>
+            <div class="hint" style="padding:12px 0">No candidate locations recorded yet.</div>
           <?php endif; ?>
         </div>
       </article>
@@ -468,15 +466,14 @@ require __DIR__.'/views/partials/header.php';
           <?php foreach($bySource as $source=>$r): 
             $rate = round(($r['converted']??0) / max(1, $r['total']) * 100);
           ?>
-          <div class="matchrow">
+          <div class="matchrow" title="<?=htmlspecialchars($source.': '.(int)($r['converted']??0).' of '.(int)$r['total'].' candidates reached an interview round or offer')?>">
             <b><?=htmlspecialchars($source)?></b>
             <div class="mini"><i style="width:<?=$rate?>%"></i></div>
             <b><?=$rate?>%</b>
           </div>
           <?php endforeach; ?>
           <?php if(empty($bySource)): ?>
-          <div class="matchrow"><b>NonceBlox website</b><div class="mini"><i style="width:7%"></i></div><b>7%</b></div>
-          <div class="matchrow"><b>Direct upload</b><div class="mini"><i style="width:0%"></i></div><b>0%</b></div>
+          <div class="hint" style="padding:12px 0">No source data yet.</div>
           <?php endif; ?>
         </div>
         <?php 
@@ -485,7 +482,7 @@ require __DIR__.'/views/partials/header.php';
         ?>
         <div style="margin-top:18px;padding-top:15px;border-top:1px solid var(--line);display:flex;justify-content:space-between">
           <span class="hint">Email delivery</span>
-          <b><?=$emailSentCount?:23?> sent</b>
+          <b><?=$emailSentCount?> sent</b>
         </div>
       </article>
     </aside>

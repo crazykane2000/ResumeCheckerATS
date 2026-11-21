@@ -12,6 +12,53 @@ function candidateApplicationAge(array $candidate, ?DateTimeImmutable $now=null)
     try{$date=new DateTimeImmutable($created);$now??=new DateTimeImmutable('now');$diff=$date->diff($now);if($diff->invert)return 'Future date';if($diff->y>0)return $diff->y.'y '.$diff->m.'m ago';if($diff->m>0)return $diff->m.' month'.($diff->m===1?'':'s').' ago';return max(0,$diff->days).' day'.($diff->days===1?'':'s').' ago';}catch(Throwable $e){return 'Unknown age';}
 }
 
+/**
+ * Readable timeline entry for recruiter actions whose metadata carries the facts
+ * (stage moves with rejection reasons, stage emails, evaluation notes, scorecards).
+ * Returns null for other actions so the generic rendering applies.
+ */
+function candidateAuditEvent(string $action, array $meta): ?array {
+    $by = trim((string)($meta['author'] ?? ''));
+    $clip = static fn(string $text, int $max = 220): string => mb_strlen($text) > $max ? mb_substr($text, 0, $max - 1) . '…' : $text;
+    switch ($action) {
+        case 'candidate.stage_changed':
+            $from = (string)($meta['old_stage'] ?? '?');
+            $to = (string)($meta['new_stage'] ?? '?');
+            $parts = [];
+            if (!empty($meta['rejection_reason_label'])) {
+                $parts[] = 'Reason: ' . $meta['rejection_reason_label'] . (!empty($meta['rejection_note']) ? ' — ' . $clip((string)$meta['rejection_note']) : '');
+            }
+            if (!empty($meta['recommendation']) && $to !== 'Rejected') {
+                $parts[] = 'Recommendation: ' . $meta['recommendation'];
+            }
+            $feedback = trim((string)($meta['eval_feedback'] ?? ''));
+            if ($feedback !== '' && $to !== 'Rejected') {
+                $parts[] = 'Note: ' . $clip($feedback);
+            }
+            $mailRequested = $meta['email_requested'] ?? $meta['email_sent'] ?? null;
+            if ($mailRequested !== null) {
+                $parts[] = $mailRequested ? 'Stage email requested' : 'No email sent';
+            }
+            if ($by !== '') {
+                $parts[] = 'By ' . $by;
+            }
+            return ['type' => 'stage', 'title' => 'Stage moved: ' . $from . ' → ' . $to, 'detail' => implode(' · ', $parts), 'state' => $to === 'Rejected' ? 'danger' : ($to === 'Offer' ? 'success' : 'info')];
+        case 'candidate.stage_email_sent':
+            $ok = ($meta['outcome'] ?? '') === 'sent';
+            $detail = 'Subject: ' . (string)($meta['subject'] ?? '') . ' · Stage: ' . (string)($meta['stage'] ?? '');
+            if (!$ok && !empty($meta['error'])) {
+                $detail .= ' · Delivery failed';
+            }
+            return ['type' => 'email', 'title' => ($ok ? 'Stage email sent' : 'Stage email failed') . (!empty($meta['template_key']) ? ' (' . $meta['template_key'] . ')' : ''), 'detail' => $detail, 'state' => $ok ? 'success' : 'danger'];
+        case 'candidate.evaluation_note':
+            return ['type' => 'note', 'title' => 'Evaluation note · ' . (string)($meta['stage'] ?? '') . ' · ' . (string)($meta['recommendation'] ?? ''), 'detail' => $clip((string)($meta['feedback'] ?? '')) . ($by !== '' ? ' · By ' . $by : ''), 'state' => ($meta['recommendation'] ?? '') === 'Reject' ? 'danger' : 'info'];
+        case 'interview.scorecard_submitted':
+            $score = $meta['overall_score'] ?? $meta['overall'] ?? null;
+            return ['type' => 'scorecard', 'title' => 'Interview scorecard submitted', 'detail' => trim(($score !== null ? 'Overall ' . $score . '/5 · ' : '') . (!empty($meta['recommendation']) ? 'Recommendation: ' . $meta['recommendation'] : ''), ' ·'), 'state' => 'info'];
+    }
+    return null;
+}
+
 // $raw (optional) receives the rows already fetched here so callers such as candidateJourney()
 // can reuse them without extra database round trips.
 function candidateActivityTimeline(PDO $pdo,array $candidate,?array &$raw=null): array {
@@ -45,7 +92,13 @@ function candidateActivityTimeline(PDO $pdo,array $candidate,?array &$raw=null):
 
     $s=$pdo->prepare("SELECT action,metadata_json,created_at FROM audit_events WHERE entity_type='candidate' AND entity_id=? ORDER BY created_at");$s->execute([$id]);$raw['audit']=$s->fetchAll();
     $skip=['interview.invitation_sent','interview.invitation_failed','interview.outcome_recorded','offer_letter.downloaded'];
-    foreach($raw['audit'] as $row){if(in_array($row['action'],$skip,true))continue;$meta=json_decode($row['metadata_json']??'{}',true)?:[];$detail='';if(isset($meta['outcome']))$detail='Outcome: '.str_replace('_',' ',(string)$meta['outcome']);elseif(isset($meta['reason']))$detail='Reason: '.str_replace('_',' ',(string)$meta['reason']);$title=ucwords(str_replace(['.','_'],' ',(string)$row['action']));$state=str_contains((string)$row['action'],'failed')?'danger':(str_contains((string)$row['action'],'analyzed')?'success':'neutral');$add((string)$row['created_at'],'audit',$title,$detail,$state);}
+    foreach($raw['audit'] as $row){
+        if(in_array($row['action'],$skip,true))continue;
+        $meta=json_decode($row['metadata_json']??'{}',true)?:[];
+        $special=candidateAuditEvent((string)$row['action'],$meta);
+        if($special!==null){$add((string)$row['created_at'],$special['type'],$special['title'],$special['detail'],$special['state']);continue;}
+        $detail='';if(isset($meta['outcome']))$detail='Outcome: '.str_replace('_',' ',(string)$meta['outcome']);elseif(isset($meta['reason']))$detail='Reason: '.str_replace('_',' ',(string)$meta['reason']);$title=ucwords(str_replace(['.','_'],' ',(string)$row['action']));$state=str_contains((string)$row['action'],'failed')?'danger':(str_contains((string)$row['action'],'analyzed')?'success':'neutral');$add((string)$row['created_at'],'audit',$title,$detail,$state);
+    }
 
     usort($events,static fn($a,$b)=>strcmp($b['at'],$a['at']));return $events;
 }

@@ -70,6 +70,30 @@ try {
         $notesStmt->execute([$candidateId]);
         $notes = $notesStmt->fetchAll(PDO::FETCH_ASSOC);
 
+        // Interview scorecards submitted by interviewers (candidate_detail.php#scorecard)
+        $scoreboard = ['count' => 0, 'averages' => null, 'cards' => []];
+        try {
+            $scStmt = $pdo->prepare("SELECT s.technical_rating, s.communication_rating, s.cultural_rating, s.problem_solving_rating, s.overall_score, s.recommendation, s.notes, s.created_at, u.name AS interviewer_name FROM interview_scorecards s LEFT JOIN users u ON u.id = s.interviewer_id WHERE s.candidate_id = ? ORDER BY s.id DESC");
+            $scStmt->execute([$candidateId]);
+            $cards = $scStmt->fetchAll(PDO::FETCH_ASSOC);
+            if ($cards) {
+                $avg = static fn(string $key): float => round(array_sum(array_map(static fn($r) => (float)$r[$key], $cards)) / count($cards), 1);
+                $scoreboard = [
+                    'count' => count($cards),
+                    'averages' => [
+                        'technical' => $avg('technical_rating'),
+                        'communication' => $avg('communication_rating'),
+                        'cultural' => $avg('cultural_rating'),
+                        'problem_solving' => $avg('problem_solving_rating'),
+                        'overall' => $avg('overall_score'),
+                    ],
+                    'cards' => $cards,
+                ];
+            }
+        } catch (Throwable $e) {
+            // interview_scorecards is absent on databases without migration 20261112_interview_scorecards.
+        }
+
         // Fetch System Activity Timeline
         $timelineEvents = candidateActivityTimeline($pdo, $cand, $journeyRaw);
         $journey = candidateJourney($cand + ['source' => $cSource], $journeyRaw ?? [], count($notes));
@@ -142,6 +166,8 @@ try {
                 'resume_url' => 'resume_file.php?id=' . urlencode($cand['id']),
                 'text_url' => 'candidate_drawer_api.php?id=' . urlencode($cand['id']),
                 'notes' => $notes,
+                'scoreboard' => $scoreboard,
+                'scorecard_url' => 'candidate_detail.php?id=' . urlencode($cand['id']) . '#scorecard',
                 'activity' => $timelineEvents,
                 'journey' => $journey,
                 'applications' => personApplications($pdo, (string)$cand['id'], $cand['email'] ?? null, !empty($cand['job_id']) ? (int)$cand['job_id'] : null)
@@ -301,6 +327,10 @@ try {
             ],
             'target_stage' => $targetStage,
             'template_key' => $templateKey,
+            'template_stage' => lifecycleTemplateStage($templateKey),
+            'placeholders' => ['candidate_name' => $candidateName, 'job_title' => $jobTitle, 'company_name' => $brandName],
+            'rejection_reasons' => lifecycleRejectionReasons(),
+            'already_sent' => lifecycleStageEmailSentAt($pdo, (string)$cand['id'], $templateKey),
             'subject' => $defaultSubject,
             'body_text' => $defaultBodyText,
             'html' => $html,
@@ -335,11 +365,48 @@ try {
         $evalStrengths = trim((string)($input['eval_strengths'] ?? ''));
         $evalRecommendation = trim((string)($input['eval_recommendation'] ?? 'Advance'));
 
+        $rejectionReason = trim((string)($input['rejection_reason'] ?? ''));
+        $rejectionNote = trim((string)($input['rejection_note'] ?? ''));
+        $allowResend = !empty($input['allow_resend']);
+
         $allowedStages = ['Applied', 'Screening', 'Invited', 'Round 1', 'Interview', 'Round 2', 'Offer', 'Rejected'];
         if (!in_array($targetStage, $allowedStages, true)) {
             http_response_code(422);
-            echo json_encode(['ok' => false, 'error' => 'Invalid target stage: ' . $targetStage]);
+            echo json_encode(['ok' => false, 'error' => 'Invalid target stage.']);
             exit;
+        }
+
+        // A Round 2 invitation moves the candidate to the Round 2 stage instead of leaving
+        // them in the generic Interview/Invited stage.
+        if ($templateKey === 'round2' && in_array($targetStage, ['Interview', 'Invited', 'Round 1'], true)) {
+            $targetStage = 'Round 2';
+        }
+
+        $reasons = lifecycleRejectionReasons();
+        if ($targetStage === 'Rejected') {
+            if (!isset($reasons[$rejectionReason])) {
+                http_response_code(422);
+                echo json_encode(['ok' => false, 'error' => 'Select a rejection reason before rejecting the candidate.']);
+                exit;
+            }
+            if ($rejectionReason === 'other' && $rejectionNote === '') {
+                http_response_code(422);
+                echo json_encode(['ok' => false, 'error' => 'Add a short note when the rejection reason is "Other".']);
+                exit;
+            }
+        } else {
+            $rejectionReason = '';
+            $rejectionNote = '';
+        }
+        $rejectionLabel = $rejectionReason !== '' ? $reasons[$rejectionReason] : '';
+
+        if ($sendEmail && $templateKey !== '' && !$allowResend) {
+            $sentAt = lifecycleStageEmailSentAt($pdo, $candidateId, $templateKey);
+            if ($sentAt !== null) {
+                http_response_code(409);
+                echo json_encode(['ok' => false, 'duplicate' => true, 'error' => 'This email was already sent to the candidate on ' . $sentAt . '.']);
+                exit;
+            }
         }
 
         // Fetch candidate
@@ -360,13 +427,21 @@ try {
         }
 
         $oldStage = $cand['stage'];
+        $authorName = $user['name'] ?: 'Recruiter';
+
+        $pdo->beginTransaction();
 
         // 1. Update Candidate Stage in DB
         $updateStmt = $pdo->prepare("UPDATE candidates SET stage = ? WHERE id = ?");
         $updateStmt->execute([$targetStage, $candidateId]);
 
-        // 2. Save Evaluation Note if provided
-        $authorName = $user['name'] ?: 'Recruiter';
+        // 2. Save Evaluation Note if provided. A rejection always leaves a note with its reason
+        //    so the decision is visible on the candidate timeline.
+        if ($targetStage === 'Rejected') {
+            $reasonText = 'Rejected (' . $oldStage . ' → Rejected). Reason: ' . $rejectionLabel . ($rejectionNote !== '' ? ' — ' . $rejectionNote : '');
+            $evalFeedback = $evalFeedback !== '' ? $reasonText . "\n" . $evalFeedback : $reasonText;
+            $evalRecommendation = 'Reject';
+        }
         if ($evalFeedback !== '' || $evalStrengths !== '') {
             $nStmt = $pdo->prepare("
                 INSERT INTO candidate_notes (candidate_id, user_id, author_name, stage, feedback, strengths, recommendation, created_at)
@@ -394,12 +469,18 @@ try {
                 'old_stage' => $oldStage,
                 'new_stage' => $targetStage,
                 'author' => $authorName,
-                'email_sent' => $sendEmail,
+                'email_requested' => $sendEmail,
+                'template_key' => $templateKey,
+                'rejection_reason' => $rejectionReason,
+                'rejection_reason_label' => $rejectionLabel,
+                'rejection_note' => $rejectionNote,
                 'eval_feedback' => $evalFeedback,
                 'eval_strengths' => $evalStrengths,
                 'recommendation' => $evalRecommendation
             ])
         ]);
+
+        $pdo->commit();
 
         $emailResult = null;
 
@@ -423,6 +504,11 @@ try {
                     $templates[$templateKey]['default_subject'] ?? 'Hiring Update'
                 );
             }
+            $customSubject = lifecycleFillPlaceholders($customSubject, [
+                'candidate_name' => $candidateName,
+                'job_title' => $jobTitle,
+                'company_name' => $brandName,
+            ]);
 
             $renderedHtml = renderLifecycleEmailHtml($templateKey, [
                 'candidate_name' => $candidateName,
@@ -455,6 +541,10 @@ try {
     http_response_code(405);
     echo json_encode(['ok' => false, 'error' => 'Method not allowed.']);
 } catch (Throwable $e) {
+    if (isset($pdo) && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    error_log('pipeline_lifecycle_api: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['ok' => false, 'error' => 'The request could not be completed. No stage change was saved if this happened during a move.']);
 }

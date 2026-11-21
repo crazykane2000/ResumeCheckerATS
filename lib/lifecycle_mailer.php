@@ -38,6 +38,8 @@ function getLifecycleTemplates(): array {
         ],
         'round1' => [
             'key' => 'round1',
+            // "Interview" = invited to Round 1 (pipeline "Invited" column). A booked slot or an
+            // explicit "Round 1" move puts the card in "Round 1 Confirmed".
             'stage' => 'Interview',
             'label' => 'Interview Invitation — Round 1 (Screening / Technical)',
             'icon' => 'fa-calendar-check',
@@ -51,7 +53,7 @@ function getLifecycleTemplates(): array {
         ],
         'round2' => [
             'key' => 'round2',
-            'stage' => 'Interview',
+            'stage' => 'Round 2',
             'label' => 'Interview Invitation — Round 2 (Advanced / Leadership)',
             'icon' => 'fa-star',
             'badge_color' => '#9333ea',
@@ -92,6 +94,80 @@ function getLifecycleTemplates(): array {
 }
 
 /**
+ * Pipeline stage each lifecycle template moves the candidate to.
+ * Round 2 is its own stage so the candidate is no longer shown as plain "Interview".
+ */
+function lifecycleTemplateStage(string $templateKey): ?string {
+    $templates = getLifecycleTemplates();
+    return $templates[$templateKey]['stage'] ?? null;
+}
+
+/**
+ * Recruiter-selectable rejection reasons. Stored with the stage change and shown on the
+ * candidate timeline. Internal only: never inserted into the candidate email.
+ */
+function lifecycleRejectionReasons(): array {
+    return [
+        'skills_mismatch' => 'Skills do not match the role requirements',
+        'experience_mismatch' => 'Experience level does not match',
+        'interview_performance' => 'Did not clear the interview round',
+        'ctc_mismatch' => 'Expected CTC outside budget',
+        'notice_period' => 'Notice period / joining availability',
+        'location' => 'Location / work-mode mismatch',
+        'no_response' => 'Candidate did not respond / no-show',
+        'candidate_withdrew' => 'Candidate withdrew',
+        'position_filled' => 'Position filled by another candidate',
+        'other' => 'Other (see note)',
+    ];
+}
+
+/**
+ * When this lifecycle template was last delivered to the candidate, or null. Used to stop a
+ * second rejection/offer/round mail going out by accident.
+ */
+function lifecycleStageEmailSentAt(PDO $pdo, string $candidateId, string $templateKey): ?string {
+    if ($candidateId === '' || $templateKey === '') {
+        return null;
+    }
+    $stmt = $pdo->prepare("SELECT created_at, metadata_json FROM audit_events WHERE entity_type='candidate' AND entity_id=? AND action='candidate.stage_email_sent' ORDER BY created_at DESC");
+    $stmt->execute([$candidateId]);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $meta = json_decode((string)($row['metadata_json'] ?? ''), true) ?: [];
+        if (($meta['template_key'] ?? '') === $templateKey && ($meta['outcome'] ?? '') === 'sent') {
+            return (string)$row['created_at'];
+        }
+    }
+    return null;
+}
+
+/**
+ * Fills the placeholders recruiters type in subjects and remarks. Accepts the {{candidate_name}}
+ * form used by templates and the [Candidate Name] / {Candidate Name} forms people type by hand.
+ * Unknown placeholders are left untouched so they are visible in the preview.
+ */
+function lifecycleFillPlaceholders(string $text, array $vars): string {
+    $map = [
+        'candidate_name' => ['candidate name', 'candidate_name', 'name', 'candidate'],
+        'first_name' => ['first name', 'first_name'],
+        'job_title' => ['job title', 'job_title', 'position', 'role', 'job', 'position name', 'role name'],
+        'company_name' => ['company name', 'company_name', 'company', 'organization', 'organisation'],
+    ];
+    $fullName = trim((string)($vars['candidate_name'] ?? ''));
+    $vars['first_name'] = $vars['first_name'] ?? (preg_split('/\s+/u', $fullName)[0] ?? $fullName);
+    foreach ($map as $key => $aliases) {
+        $value = trim((string)($vars[$key] ?? ''));
+        if ($value === '') {
+            continue;
+        }
+        foreach ($aliases as $alias) {
+            $pattern = '/(\{\{\s*' . preg_quote($alias, '/') . '\s*\}\}|\[\s*' . preg_quote($alias, '/') . '\s*\]|\{\s*' . preg_quote($alias, '/') . '\s*\})/iu';
+            $text = preg_replace_callback($pattern, static fn() => $value, $text) ?? $text;
+        }
+    }
+    return $text;
+}
+
+/**
  * Renders a high-end, responsive HTML email with organization branding.
  */
 function renderLifecycleEmailHtml(string $templateKey, array $data, array $brand): string {
@@ -113,6 +189,11 @@ function renderLifecycleEmailHtml(string $templateKey, array $data, array $brand
     // Custom body text or template intro/next_steps
     $customMessage = trim((string)($data['custom_message'] ?? ''));
     if ($customMessage !== '') {
+        $customMessage = lifecycleFillPlaceholders($customMessage, [
+            'candidate_name' => $candName,
+            'job_title' => trim((string)($data['job_title'] ?? '')),
+            'company_name' => (string)($brand['name'] ?: 'NonceBlox'),
+        ]);
         $bodyHtml = nl2br(htmlspecialchars($customMessage, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
     } else {
         $intro = str_replace(['{{job_title}}', '{{company_name}}'], [$jobTitle, $brandName], $tpl['intro']);
@@ -137,7 +218,7 @@ function renderLifecycleEmailHtml(string $templateKey, array $data, array $brand
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>' . htmlspecialchars($data['subject'] ?? $brandName, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '</title>
+  <title>' . htmlspecialchars((string)($data['subject'] ?? $brandName), ENT_QUOTES | ENT_HTML5, 'UTF-8') . '</title>
 </head>
 <body style="margin:0; padding:0; background-color:#f8fafc; font-family:\'Segoe UI\', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; color:#334155; -webkit-font-smoothing:antialiased;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc; padding:32px 16px;">
